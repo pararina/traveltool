@@ -2,7 +2,7 @@
 // アプリ本体をキャッシュして、オフラインでも起動できるようにします。
 // index.html を更新したときは、下の CACHE の番号(v1→v2…)を上げてください。
 const CACHE = 'travel-v1';
-const CORE = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CORE = ['./', './index.html', './manifest.webmanifest', './favicon_travel.png?v=2', './favicon_travel.png?v=2'];
 const CDN_HOSTS = ['cdn.tailwindcss.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', e => {
