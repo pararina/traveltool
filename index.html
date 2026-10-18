@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="旅行">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>旅行管理ツール</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -125,6 +131,7 @@
           <p class="text-xs opacity-80">✈ TRAVEL PLANNER</p>
           <h1 id="current-trip-name" class="text-xl md:text-2xl font-bold truncate">旅行を選択</h1>
           <p id="trip-sub" class="text-xs opacity-90"></p>
+          <p id="offline-badge" class="hidden text-xs mt-1 inline-block bg-white/25 px-2 py-0.5 rounded-full">📴 オフライン(保存済みデータを表示中)</p>
         </div>
       </div>
     </header>
@@ -224,23 +231,38 @@ function showToast(message, type = 'success') {
   toastTimer = setTimeout(() => { t.style.opacity = '0'; }, 2800);
 }
 
+// 通信の本体(エラーは呼び出し側で処理)
+async function rpc(action, ...args) {
+  const response = await fetch(WEB_APP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action, args })
+  });
+  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+  const result = await response.json();
+  if (result.success) return result.data;
+  throw new Error(result.error || 'API側でエラーが発生しました');
+}
+
+// 通常の呼び出し(失敗時にトースト表示)
 async function serverCall(action, ...args) {
   try {
-    const response = await fetch(WEB_APP_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action, args })
-    });
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const result = await response.json();
-    if (result.success) return result.data;
-    throw new Error(result.error || 'API側でエラーが発生しました');
+    return await rpc(action, ...args);
   } catch (error) {
     console.error('Server Call Error:', error);
     showToast(`通信エラー: ${error.message}`, 'error');
     throw error;
   }
 }
+
+/* ---------- 端末内キャッシュ ---------- */
+function lsGet(key) { try { return JSON.parse(localStorage.getItem('tp:' + key)); } catch (_) { return null; } }
+function lsSet(key, val) { try { localStorage.setItem('tp:' + key, JSON.stringify(val)); } catch (_) {} }
+function invalidateCache(trip) {
+  delete state.scheduleCache[trip];
+  try { localStorage.removeItem('tp:sch:' + trip); } catch (_) {}
+}
+function isBusy() { return !!drag || $('modal').classList.contains('open'); }
 
 function destroyAutocompleteIfAny() {
   try {
@@ -298,6 +320,7 @@ function openSidebar() { $('sidebar').classList.remove('sidebar-closed'); $('sid
 function closeSidebar() { $('sidebar').classList.add('sidebar-closed'); $('sidebar-overlay').classList.remove('show'); }
 
 function renderTrips() {
+  lsSet('trips', state.tripLists);  
   const tripList = $('trip-list');
   tripList.innerHTML = '';
   const createItem = (tripName, isArchived) => {
@@ -340,6 +363,7 @@ function closeAllTripMenus(except = null) {
 }
 
 function renderMileage() {
+  lsSet('mileage', state.mileage); 
   const item = (p, a) => {
     const n = state.mileage?.[p]?.[a] || '未設定';
     return `<div class="flex items-center justify-between text-sm">
@@ -377,6 +401,7 @@ function chipLabel(key, idx) {
 
 function renderSchedules() {
   computeDays();
+  if (state.currentTrip) lsSet('sch:' + state.currentTrip, state.schedules); 
   const list = $('schedule-list');
   const bar = $('day-bar');
   const chips = $('day-chips');
@@ -483,21 +508,35 @@ async function handleTripSelect(tripName) {
     renderSchedules();
     return;
   }
-  $('schedule-list').innerHTML = '<div class="text-center text-[var(--sub)] p-10">読み込み中...</div>';
-  try {
-    const schedules = await serverCall('getSchedules', tripName);
-    if (state.currentTrip !== tripName) return;
-    state.schedules = schedules || [];
-    state.scheduleCache[tripName] = state.schedules;
+    // 端末に保存済みなら先に表示し、裏で最新を取得
+  const cached = lsGet('sch:' + tripName);
+  if (cached) {
+    state.schedules = cached;
     renderSchedules();
+  } else {
+    state.schedules = [];
+    $('day-bar').classList.add('hidden');
+    $('schedule-list').innerHTML = '<div class="text-center text-[var(--sub)] p-10">読み込み中...</div>';
+  }
+
+  try {
+    const fresh = (await rpc('getSchedules', tripName)) || [];
+    if (state.currentTrip !== tripName) return;
+    if (cached && isBusy()) return;               // 操作中は画面を差し替えない
+    state.schedules = fresh;
+    state.scheduleCache[tripName] = fresh;
+    if (!cached || JSON.stringify(cached) !== JSON.stringify(fresh)) renderSchedules();
   } catch (e) {
-    $('schedule-list').innerHTML = '<div class="text-center text-red-500 p-10">予定の読み込みに失敗しました。</div>';
+    console.error(`Failed to get schedules for ${tripName}`, e);
+    if (state.currentTrip !== tripName) return;
+    if (cached) showToast('オフライン表示中(保存済みのデータ)', 'error');
+    else $('schedule-list').innerHTML = '<div class="text-center text-red-500 p-10">予定の読み込みに失敗しました。</div>';
   }
 }
 
 async function reloadCurrentTrip() {
   const t = state.currentTrip;
-  delete state.scheduleCache[t];
+  invalidateCache(t);
   await handleTripSelect(t);
 }
 
@@ -636,7 +675,7 @@ function showScheduleModal(isEditing = false, id = null) {
         parkingUrl: fd.get('parkingUrl') || ''
       };
       await serverCall(state.isEditing ? 'updateSchedule' : 'addSchedule', state.currentTrip, finalSchedule);
-      delete state.scheduleCache[state.currentTrip];
+      invalidateCache(state.currentTrip);
       state.selectedDay = dateStr;
       hideModal();
       showToast(`予定を${state.isEditing ? '更新' : '追加'}しました`);
@@ -712,9 +751,9 @@ function handleRouteSearch() {
   });
 }
 
-/* ---------- 変更の保存(楽観的更新) ---------- */
 async function persistChanges(changed) {
   if (!changed.length) return;
+  const backup = state.schedules.map(s => ({ ...s }));   // 失敗時に元へ戻す用
   changed.forEach(u => {
     const i = state.schedules.findIndex(x => x.id === u.id);
     if (i >= 0) state.schedules[i] = u;
@@ -723,10 +762,12 @@ async function persistChanges(changed) {
   state.scheduleCache[state.currentTrip] = state.schedules;
   renderSchedules();
   try {
-    await Promise.all(changed.map(u => serverCall('updateSchedule', state.currentTrip, u)));
+    await serverCall('updateSchedules', state.currentTrip, changed);   // 1回の通信でまとめて保存
     showToast('保存しました');
   } catch (e) {
-    await reloadCurrentTrip();
+    state.schedules = backup;
+    state.scheduleCache[state.currentTrip] = backup;
+    renderSchedules();
   }
 }
 
@@ -734,7 +775,7 @@ async function handleDeleteSchedule(id) {
   if (!confirm('この予定を本当に削除しますか？')) return;
   try {
     await serverCall('deleteSchedule', state.currentTrip, id);
-    delete state.scheduleCache[state.currentTrip];
+    invalidateCache(state.currentTrip);
     showToast('予定を削除しました');
     const keep = state.selectedDay;
     await handleTripSelect(state.currentTrip);
@@ -764,7 +805,7 @@ async function handleUnarchiveTrip(name) {
 async function handleDeleteTrip(name) {
   if (!confirm(`本当に「${name}」を削除しますか？\nこの操作は取り消せません。`)) return;
   await serverCall('deleteTrip', name);
-  delete state.scheduleCache[name];
+  invalidateCache(name);
   resetCurrentIfNeeded(name);
   state.tripLists = await serverCall('getTrips'); renderTrips(); showToast('旅行を削除しました');
 }
@@ -996,6 +1037,24 @@ $('trip-list').addEventListener('click', e => {
   else if (a === 'delete') handleDeleteTrip(n);
 });
 document.addEventListener('click', e => { if (!e.target.closest('#trip-list')) closeAllTripMenus(); });
+
+/* ---------- オンライン/オフライン表示 ---------- */
+function updateOnline() { $('offline-badge').classList.toggle('hidden', navigator.onLine); }
+window.addEventListener('offline', updateOnline);
+window.addEventListener('online', async () => {
+  updateOnline();
+  if (!state.currentTrip || isBusy()) return;
+  const keepDay = state.selectedDay;
+  invalidateCache(state.currentTrip);
+  await handleTripSelect(state.currentTrip);
+  if (state.days.includes(keepDay)) { state.selectedDay = keepDay; renderSchedules(); }
+});
+updateOnline();
+
+/* ---------- PWA(サービスワーカー登録) ---------- */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
 
 init();
 </script>
