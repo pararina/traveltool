@@ -11,9 +11,12 @@
 <meta name="apple-mobile-web-app-title" content="旅行">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>旅行管理ツール</title>
+<link rel="icon" href="https://johaqsquare.github.io/traveltool/favicon_travel.png" type="image/png" sizes="48x48">
+<link rel="apple-touch-icon" href="https://johaqsquare.github.io/traveltool/favicon_travel.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+<script>function initMapApi() {}</script>
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCg4cHbogYAIGUz41VnyjIyoTmA6ORjC2Q&libraries=places&callback=initMapApi" async defer></script>
 <style>
   :root{
@@ -744,6 +747,7 @@ function showScheduleModal(isEditing = false, id = null) {
 function handleRouteSearch() {
   const o = $('origin').value, d = $('address').value, r = $('route-results');
   if (!o || !d) { r.innerHTML = '<p class="text-red-600">出発地と目的地を入力してください。</p>'; return; }
+  if (!directionsService && window.google && google.maps) directionsService = new google.maps.DirectionsService();
   if (!directionsService) { r.innerHTML = '<p class="text-red-600">地図APIの読み込み中です。少し待ってからお試しください。</p>'; return; }
   r.innerHTML = '<p class="text-gray-500">検索中...</p>';
   const mode = $('method').value === '徒歩' ? 'WALKING' : 'DRIVING';
