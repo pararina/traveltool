@@ -62,6 +62,21 @@
   .icon-btn{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;color:#9aa5ad;}
   .icon-btn:hover,.icon-btn:active{background:#f3efe8;color:var(--ink);}
 
+
+  /* 24時間軸(ドラッグ中だけ表示) */
+  #axis{position:fixed;z-index:2500;background:rgba(247,242,234,.98);box-shadow:inset 0 8px 8px -8px rgba(0,0,0,.25);}
+  #axis-scroll{position:absolute;inset:0;overflow:hidden;}
+  #axis-track{position:relative;}
+  .ax-hour{position:absolute;left:0;right:0;border-top:1px solid #d9cfbf;}
+  .ax-hour span{position:absolute;left:8px;top:-9px;font-size:.75rem;font-weight:700;color:var(--sub);background:rgba(247,242,234,.98);padding:0 4px;}
+  .ax-half{position:absolute;left:56px;right:0;border-top:1px dashed #e6ddd0;}
+  .ax-item{position:absolute;max-width:140px;height:22px;line-height:18px;padding:2px 8px;border-radius:8px;font-size:.72rem;background:#fff;border-left:4px solid var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.12);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.85;}
+  #ax-line{position:absolute;left:0;right:0;border-top:2px solid var(--orange);display:none;pointer-events:none;}
+  #ax-badge{position:absolute;left:6px;top:-15px;background:var(--orange);color:#fff;font-weight:700;font-size:.85rem;padding:1px 8px;border-radius:999px;}
+  .drag-chip{display:flex;align-items:center;gap:8px;padding:.55rem .9rem;border-radius:1rem;background:#fff;border-left:5px solid var(--accent,#94a3b8);font-weight:700;}
+  .drag-chip .gt{color:var(--orange);font-size:1.1rem;}
+  .drag-chip .gn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
   /* FAB */
   #fab{position:fixed;right:18px;bottom:calc(20px + env(safe-area-inset-bottom));width:62px;height:62px;border-radius:50%;background:linear-gradient(135deg,var(--orange),var(--pink));color:#fff;font-size:2rem;line-height:1;box-shadow:0 8px 20px rgba(255,94,126,.45);z-index:30;display:none;align-items:center;justify-content:center;transition:transform .15s;}
   #fab:active{transform:scale(.92);}
@@ -118,7 +133,7 @@
       <div id="day-bar" class="px-4 py-3 hidden"><div id="day-chips" class="flex gap-2 overflow-x-auto no-scrollbar"></div></div>
       <div class="px-4 pb-28 pt-2 max-w-2xl mx-auto">
         <div id="hint" class="hidden mb-3 text-xs text-[var(--sub)] bg-white/70 rounded-xl px-3 py-2 flex gap-2 items-start">
-          <span>💡 カードを<b>長押し→ドラッグ</b>で並び替え(時刻が入れ替わります)。上の日付にドロップで日付移動、時刻をタップで時刻変更。</span>
+          <span>💡 カードを<b>長押し→ドラッグ</b>すると24時間軸が現れ、置いた位置(10分単位)が開始時刻になります。上の日付にドロップで日付移動、時刻をタップで時刻変更もできます。</span>
           <button id="hint-close" class="ml-auto flex-shrink-0">✕</button>
         </div>
         <div id="schedule-list"></div>
@@ -806,23 +821,67 @@ function cleanupListeners() {
   document.removeEventListener('mouseup', onEnd);
 }
 
+const PX_PER_MIN = 1.2, AXIS_PAD = 22;
+const minToY = min => AXIS_PAD + min * PX_PER_MIN;
+
+function buildAxis(dragId) {
+  const mr = $('main').getBoundingClientRect();
+  const bar = $('day-bar');
+  const top = bar.classList.contains('hidden') ? mr.top : bar.getBoundingClientRect().bottom;
+  const el = document.createElement('div'); el.id = 'axis';
+  Object.assign(el.style, { left: mr.left + 'px', width: mr.width + 'px', top: top + 'px', height: (mr.bottom - top) + 'px' });
+  let html = `<div id="axis-scroll"><div id="axis-track" style="height:${AXIS_PAD * 2 + 1440 * PX_PER_MIN}px">`;
+  for (let h = 0; h <= 24; h++) {
+    html += `<div class="ax-hour" style="top:${minToY(h * 60)}px"><span>${pad(h)}:00</span></div>`;
+    if (h < 24) html += `<div class="ax-half" style="top:${minToY(h * 60 + 30)}px"></div>`;
+  }
+  const others = state.schedules.filter(x => dayKey(x) === state.selectedDay && x.id !== dragId)
+    .map(x => { const q = partsOf(x.datetime); return { x, min: q.h * 60 + q.m, q }; })
+    .sort((m, n) => m.min - n.min);
+  const laneEnds = [];
+  others.forEach(o => {
+    const t = minToY(o.min);
+    let lane = laneEnds.findIndex(end => end <= t);
+    if (lane < 0) { lane = laneEnds.length; laneEnds.push(0); }
+    laneEnds[lane] = t + 24;
+    const mi = methodInfo(o.x.method);
+    html += `<div class="ax-item" style="top:${t - 11}px;left:${64 + lane * 146}px;--accent:${mi.color}"><b>${pad(o.q.h)}:${pad(o.q.m)}</b> ${esc(o.x.destination || '')}</div>`;
+  });
+  html += `<div id="ax-line"><span id="ax-badge">--:--</span></div></div></div>`;
+  el.innerHTML = html;
+  return el;
+}
+
 function beginDrag(row, pt) {
-  const rect = row.getBoundingClientRect();
-  const ghost = row.cloneNode(true);
-  ghost.classList.add('drag-ghost');
-  Object.assign(ghost.style, { width: rect.width + 'px', left: rect.left + 'px', top: rect.top + 'px' });
+  const s = state.schedules.find(x => x.id === row.dataset.id);
+  if (!s) return;
+  const p = partsOf(s.datetime), mi = methodInfo(s.method);
+  const axis = buildAxis(s.id);
+  document.body.appendChild(axis);
+  const scroll = axis.querySelector('#axis-scroll');
+  scroll.scrollTop = Math.max(0, minToY(p.h * 60 + p.m) - scroll.clientHeight * 0.4);
+
+  const ar = axis.getBoundingClientRect();
+  const ghost = document.createElement('div');
+  ghost.className = 'drag-ghost drag-chip';
+  ghost.style.setProperty('--accent', mi.color);
+  ghost.style.left = (ar.left + 60) + 'px';
+  ghost.style.width = (ar.width - 76) + 'px';
+  ghost.innerHTML = `<span class="gt">${pad(p.h)}:${pad(p.m)}</span><span class="gn">${mi.icon} ${esc(s.destination || '(件名なし)')}</span>`;
   document.body.appendChild(ghost);
+
   row.classList.add('dragging');
   document.body.classList.add('dragging');
   if (navigator.vibrate) { try { navigator.vibrate(25); } catch (_) {} }
-  drag = { row, ghost, id: row.dataset.id, offY: pt.y - rect.top, offX: pt.x - rect.left, pt, targetDay: null, raf: null };
+  drag = { row, ghost, axis, scroll, id: s.id, pt, targetDay: null, minutes: null, raf: null };
+
   const loop = () => {
     if (!drag) return;
-    const main = $('main'), r = main.getBoundingClientRect(), zone = 90;
+    const r = drag.axis.getBoundingClientRect(), zone = 80;
     let dy = 0;
-    if (drag.pt.y > r.bottom - zone) dy = Math.min(18, (drag.pt.y - (r.bottom - zone)) / 4);
-    else if (drag.pt.y < r.top + zone + 60) dy = -Math.min(18, ((r.top + zone + 60) - drag.pt.y) / 4);
-    if (dy) { main.scrollTop += dy; updateDrag(); }
+    if (drag.pt.y > r.bottom - zone) dy = Math.min(16, (drag.pt.y - (r.bottom - zone)) / 4);
+    else if (drag.pt.y < r.top + zone && drag.pt.y >= r.top) dy = -Math.min(16, ((r.top + zone) - drag.pt.y) / 4);
+    if (dy) { drag.scroll.scrollTop += dy; updateDrag(); }
     drag.raf = requestAnimationFrame(loop);
   };
   updateDrag();
@@ -831,31 +890,36 @@ function beginDrag(row, pt) {
 
 function updateDrag() {
   if (!drag) return;
-  const { pt, ghost } = drag;
-  ghost.style.top = (pt.y - drag.offY) + 'px';
-  ghost.style.left = (pt.x - drag.offX) + 'px';
+  const { pt, ghost, axis, scroll } = drag;
+  const line = axis.querySelector('#ax-line'), badge = axis.querySelector('#ax-badge');
+  ghost.style.top = (pt.y - 72) + 'px';
 
-  // 日付チップ上か判定
+  // 日付チップ上か判定(日付移動)
   const under = document.elementFromPoint(pt.x, pt.y);
   const chip = under && under.closest && under.closest('.day-chip');
   document.querySelectorAll('.day-chip.drop-target').forEach(c => c.classList.remove('drop-target'));
   if (chip && chip.dataset.day !== state.selectedDay && chip.dataset.day !== 'undated') {
     chip.classList.add('drop-target');
-    drag.targetDay = chip.dataset.day;
+    drag.targetDay = chip.dataset.day; drag.minutes = null;
+    line.style.display = 'none';
     return;
   }
   drag.targetDay = null;
 
-  // 並び替え位置の決定
-  const timeline = $('timeline');
-  const rows = [...timeline.querySelectorAll('.sch-row')].filter(r => r !== drag.row);
-  let before = null;
-  for (const r of rows) {
-    const b = r.getBoundingClientRect();
-    if (pt.y < b.top + b.height / 2) { before = r; break; }
+  // 24時間軸上の位置 → 時刻(10分刻み)
+  const ar = axis.getBoundingClientRect();
+  if (pt.y >= ar.top && pt.y <= ar.bottom) {
+    const rel = pt.y - ar.top + scroll.scrollTop - AXIS_PAD;
+    let min = Math.round(rel / PX_PER_MIN / STEP_MIN) * STEP_MIN;
+    min = Math.max(0, Math.min(23 * 60 + 50, min));
+    drag.minutes = min;
+    const label = `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
+    line.style.display = 'block'; line.style.top = minToY(min) + 'px';
+    badge.textContent = label;
+    ghost.querySelector('.gt').textContent = label;
+  } else {
+    drag.minutes = null; line.style.display = 'none';
   }
-  if (before) { if (drag.row.nextElementSibling !== before) timeline.insertBefore(drag.row, before); }
-  else if (timeline.lastElementChild !== drag.row) timeline.appendChild(drag.row);
 }
 
 function onMove(e) {
@@ -878,39 +942,23 @@ function onEnd() {
   if (!drag) return;
   const d = drag; drag = null;
   cancelAnimationFrame(d.raf);
-  d.ghost.remove();
+  d.ghost.remove(); d.axis.remove();
   d.row.classList.remove('dragging');
   document.body.classList.remove('dragging');
   document.querySelectorAll('.day-chip.drop-target').forEach(c => c.classList.remove('drop-target'));
 
+  const s = state.schedules.find(x => x.id === d.id);
+  if (!s) return;
+  const p = partsOf(s.datetime);
+
   if (d.targetDay) {
-    // 別の日へ移動(時刻はそのまま)
-    const s = state.schedules.find(x => x.id === d.id);
-    if (s) {
-      const p = partsOf(s.datetime);
-      showToast(`${chipLabel(d.targetDay, state.days.indexOf(d.targetDay)).d2} に移動しました`);
-      persistChanges([{ ...s, datetime: toISO(d.targetDay, p.h, p.m) }]);
-    } else renderSchedules();
+    showToast(`${chipLabel(d.targetDay, state.days.indexOf(d.targetDay)).d2} に移動しました`);
+    persistChanges([{ ...s, datetime: toISO(d.targetDay, p.h, p.m) }]);
     return;
   }
-
-  // 同じ日の並び替え: 日内の時刻スロットを新しい順に割り当て直す
-  const newOrder = [...$('timeline').querySelectorAll('.sch-row')].map(r => r.dataset.id);
-  const dayItems = state.schedules.filter(s => dayKey(s) === state.selectedDay);
-  const oldOrder = dayItems.map(s => s.id);
-  if (newOrder.join() === oldOrder.join()) { renderSchedules(); return; }
-
-  const slots = dayItems.map(s => new Date(s.datetime).getTime()).sort((a, b) => a - b);
-  for (let i = 1; i < slots.length; i++) {           // 同時刻だと順序が保てないので10分ずつずらす
-    if (slots[i] <= slots[i - 1]) slots[i] = slots[i - 1] + STEP_MIN * 60000;
+  if (d.minutes != null && d.minutes !== p.h * 60 + p.m) {
+    persistChanges([{ ...s, datetime: toISO(p.date, Math.floor(d.minutes / 60), d.minutes % 60) }]);
   }
-  const changed = [];
-  newOrder.forEach((id, i) => {
-    const s = dayItems.find(x => x.id === id);
-    const iso = new Date(slots[i]).toISOString();
-    if (new Date(s.datetime).getTime() !== slots[i]) changed.push({ ...s, datetime: iso });
-  });
-  persistChanges(changed);
 }
 
 /* ---------- イベント登録 ---------- */
