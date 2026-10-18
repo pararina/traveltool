@@ -477,18 +477,28 @@ function cardHtml(s) {
 
 /* ---------- 旅行の選択・初期化 ---------- */
 async function init() {
-  showLoading(true);
+  const cTrips = lsGet('trips'), cMileage = lsGet('mileage');
+  const last = localStorage.getItem('lastSelectedTrip');
+  const inLists = (l, n) => !!l && ((l.active || []).includes(n) || (l.archived || []).includes(n));
+  const hasCache = !!cTrips;
+
+  if (hasCache) {                      // 保存済みデータを先に表示
+    state.tripLists = cTrips;
+    state.mileage = cMileage || { 'ぱら': {}, 'りな': {} };
+    renderTrips(); renderMileage();
+    if (last && inLists(cTrips, last)) handleTripSelect(last);
+  } else showLoading(true);
+
   try {
-    const [tripLists, mileage] = await Promise.all([serverCall('getTrips'), serverCall('getMileage')]);
+    const [tripLists, mileage] = await Promise.all([rpc('getTrips'), rpc('getMileage')]);
     state.tripLists = tripLists || { active: [], archived: [] };
     state.mileage = mileage || { 'ぱら': {}, 'りな': {} };
     renderTrips(); renderMileage();
-    const last = localStorage.getItem('lastSelectedTrip');
-    if (last && (state.tripLists.active.includes(last) || state.tripLists.archived.includes(last))) {
-      await handleTripSelect(last);
-    }
+    if (!hasCache && last && inLists(state.tripLists, last)) await handleTripSelect(last);
   } catch (e) {
-    $('welcome-message').innerHTML = '<p class="text-red-500 font-bold">データの初期化に失敗しました。</p>';
+    console.error('Initialization failed', e);
+    if (hasCache) showToast('オフライン表示中(保存済みのデータ)', 'error');
+    else $('welcome-message').innerHTML = '<p class="text-red-500 font-bold">データの初期化に失敗しました。</p>';
   } finally {
     showLoading(false);
   }
