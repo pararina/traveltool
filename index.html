@@ -1,907 +1,955 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>旅行管理ツール</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Google Maps API (APIキーを直接記述) -->
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCg4cHbogYAIGUz41VnyjIyoTmA6ORjC2Q&libraries=places&callback=initMapApi" async defer></script>
-    <!-- SheetJS (Excel出力用ライブラリ) -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <style>
-      body { font-family: 'Inter', sans-serif; }
-      .sidebar { transition: transform 0.3s ease-in-out; }
-      .sidebar-open { transform: translateX(0); }
-      .sidebar-closed { transform: translateX(-100%); }
-      .modal-backdrop { background-color: rgba(0, 0, 0, 0.5); }
-      .url-link { word-break: break-all; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<title>旅行管理ツール</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCg4cHbogYAIGUz41VnyjIyoTmA6ORjC2Q&libraries=places&callback=initMapApi" async defer></script>
+<style>
+  :root{
+    --bg:#f7f2ea; --ink:#27323a; --sub:#6b7780; --line:#e6ddd0;
+    --teal:#0f766e; --sky:#0ea5e9; --orange:#ff7a45; --pink:#ff5e7e;
+  }
+  html,body{height:100%;}
+  body{font-family:'Zen Maru Gothic',sans-serif;background:var(--bg);color:var(--ink);-webkit-tap-highlight-color:transparent;}
+  body.modal-open,body.dragging{overflow:hidden;}
+  body.dragging{user-select:none;-webkit-user-select:none;}
+  input,select,textarea{font-size:16px !important;} /* iOSの自動ズーム防止 */
+  .pac-container{z-index:2000 !important;}
 
-      /* Autocomplete はモーダルより下げる */
-      .pac-container { z-index: 1050 !important; }
+  /* ヘッダー */
+  .hero{background:linear-gradient(135deg,var(--teal) 0%,var(--sky) 100%);color:#fff;position:relative;overflow:hidden;}
+  .hero::after{content:"";position:absolute;right:-30px;top:-40px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,.12);}
+  .hero::before{content:"";position:absolute;right:60px;bottom:-60px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.08);}
 
-      .timeline-container::-webkit-scrollbar { height: 8px; }
-      .timeline-container::-webkit-scrollbar-track { background: #f1f1f1; }
-      .timeline-container::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
-      .timeline-container::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
-      details > summary { list-style: none; }
-      details > summary::-webkit-details-marker { display: none; }
-      details > summary::before { content: '▶'; margin-right: 0.5rem; display: inline-block; transition: transform 0.2s; }
-      details[open] > summary::before { transform: rotate(90deg); }
+  /* サイドバー */
+  .sidebar{transition:transform .3s ease;}
+  @media (max-width:767px){ .sidebar-closed{transform:translateX(-100%);} }
+  #sidebar-overlay{display:none;}
+  #sidebar-overlay.show{display:block;}
+  .trip-item{display:block;width:100%;text-align:left;padding:.6rem .9rem;padding-right:2.4rem;border-radius:.9rem;transition:.2s;}
+  .trip-item.active{background:linear-gradient(135deg,#ccfbf1,#e0f2fe);color:var(--teal);font-weight:700;}
+  .trip-item:not(.active):hover{background:#f3efe8;}
 
-      /* 修正: モーダルコンテンツのz-indexをCSSで一元管理 */
-      .modal-content { position: relative; z-index: 1000; }
+  /* 日付チップ */
+  #day-bar{position:sticky;top:0;z-index:10;background:rgba(247,242,234,.92);backdrop-filter:blur(8px);}
+  .day-chip{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;min-width:64px;padding:.4rem .8rem;border-radius:1rem;background:#fff;border:2px solid transparent;box-shadow:0 1px 3px rgba(0,0,0,.08);transition:.15s;}
+  .day-chip .d1{font-size:.65rem;color:var(--sub);}
+  .day-chip .d2{font-size:.9rem;font-weight:700;}
+  .day-chip.active{background:linear-gradient(135deg,var(--teal),var(--sky));color:#fff;}
+  .day-chip.active .d1{color:rgba(255,255,255,.8);}
+  .day-chip.drop-target{border-color:var(--orange);transform:scale(1.08);background:#fff4ec;color:var(--ink);}
+  .day-chip.drop-target .d1{color:var(--sub);}
 
-      /* モーダル表示中は背面の地図iframeを無効化（iOSタップ吸い取り対策） */
-      body.modal-open .map-container iframe { pointer-events: none; }
-    </style>
+  /* タイムライン */
+  .sch-row{display:flex;gap:6px;padding-bottom:14px;position:relative;-webkit-touch-callout:none;user-select:none;-webkit-user-select:none;}
+  .sch-row.dragging{opacity:.3;}
+  .time-col{width:54px;flex:0 0 54px;text-align:right;padding-top:12px;}
+  .time-chip{font-weight:700;font-size:1.05rem;color:var(--teal);padding:2px 6px;border-radius:.6rem;}
+  .time-chip:active{background:#ccfbf1;}
+  .rail{width:16px;flex:0 0 16px;position:relative;}
+  .rail::before{content:"";position:absolute;left:7px;top:0;bottom:-14px;width:2px;background:repeating-linear-gradient(to bottom,#cbbfae 0 6px,transparent 6px 10px);}
+  .sch-row:last-child .rail::before{bottom:14px;}
+  .rail .dot{position:absolute;left:1px;top:18px;width:14px;height:14px;border-radius:50%;background:#fff;border:4px solid var(--accent,#94a3b8);}
+  .card-main{flex:1;min-width:0;background:#fff;border-radius:1.1rem;padding:.85rem 1rem;box-shadow:0 2px 8px rgba(80,60,30,.08);border-left:5px solid var(--accent,#94a3b8);}
+  .drag-ghost{position:fixed;z-index:3000;pointer-events:none;opacity:.95;transform:scale(1.03);filter:drop-shadow(0 12px 18px rgba(0,0,0,.25));}
+  .tag{display:inline-flex;align-items:center;gap:.25rem;font-size:.72rem;font-weight:700;padding:.15rem .6rem;border-radius:999px;}
+  .link-chip{display:inline-block;font-size:.75rem;padding:.2rem .65rem;border-radius:999px;background:#e0f2fe;color:#0369a1;font-weight:700;}
+  .icon-btn{width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;color:#9aa5ad;}
+  .icon-btn:hover,.icon-btn:active{background:#f3efe8;color:var(--ink);}
+
+  /* FAB */
+  #fab{position:fixed;right:18px;bottom:calc(20px + env(safe-area-inset-bottom));width:62px;height:62px;border-radius:50%;background:linear-gradient(135deg,var(--orange),var(--pink));color:#fff;font-size:2rem;line-height:1;box-shadow:0 8px 20px rgba(255,94,126,.45);z-index:30;display:none;align-items:center;justify-content:center;transition:transform .15s;}
+  #fab:active{transform:scale(.92);}
+  #fab.show{display:flex;}
+
+  /* モーダル(ボトムシート) */
+  #modal{display:none;position:fixed;inset:0;z-index:50;align-items:flex-end;justify-content:center;}
+  #modal.open{display:flex;}
+  @media (min-width:768px){ #modal{align-items:center;} }
+  #modal-sheet{max-height:92vh;max-height:92dvh;animation:slideUp .25s ease;}
+  @keyframes slideUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+  .field{display:block;width:100%;margin-top:.25rem;padding:.6rem .75rem;border:1.5px solid var(--line);border-radius:.8rem;background:#fffdf9;}
+  .field:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(14,165,233,.15);}
+  .lbl{font-size:.78rem;font-weight:700;color:var(--sub);}
+  .m-chip{flex:0 0 auto;padding:.45rem .8rem;border-radius:999px;border:1.5px solid var(--line);background:#fffdf9;font-size:.85rem;font-weight:700;}
+  .m-chip.active{background:var(--teal);color:#fff;border-color:var(--teal);}
+  details.more>summary{list-style:none;cursor:pointer;padding:.6rem .8rem;border-radius:.8rem;background:#f3efe8;font-weight:700;font-size:.85rem;color:var(--sub);}
+  details.more>summary::-webkit-details-marker{display:none;}
+  details.more[open]>summary{margin-bottom:.75rem;}
+  .no-scrollbar::-webkit-scrollbar{display:none;} .no-scrollbar{scrollbar-width:none;}
+
+  #toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:3500;padding:.5rem 1.1rem;border-radius:999px;color:#fff;font-weight:700;font-size:.85rem;opacity:0;pointer-events:none;transition:opacity .25s;max-width:90vw;text-align:center;}
+</style>
 </head>
-<body class="bg-gray-100">
-    <div id="app" class="flex h-screen overflow-hidden">
-        <aside id="sidebar" class="sidebar sidebar-closed fixed inset-y-0 left-0 z-40 w-64 bg-white shadow-lg md:relative md:translate-x-0">
-            <div class="flex flex-col h-full p-4">
-                <div class="flex items-center justify-between mb-6">
-                    <h2 class="text-xl font-bold text-gray-800">旅行リスト</h2>
-                    <button id="close-sidebar-btn" class="md:hidden text-gray-500 hover:text-gray-800">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                        </svg>
-                    </button>
-                </div>
-                <nav id="trip-list" class="flex-1 overflow-y-auto mb-4"></nav>
-                <button id="add-trip-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300">新しい旅行を追加</button>
-                <div id="mileage-info" class="mt-6 pt-6 border-t border-gray-200"></div>
-            </div>
-        </aside>
-        <div class="flex-1 flex flex-col overflow-hidden">
-            <header class="bg-white shadow-md">
-                <div class="container mx-auto px-4 sm:px-6 lg:px-8">
-                    <div class="flex items-center justify-between h-16">
-                        <div class="flex items-center min-w-0">
-                            <button id="open-sidebar-btn" class="md:hidden text-gray-500 hover:text-gray-800 mr-4 flex-shrink-0">
-                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                                </svg>
-                            </button>
-                            <h1 id="current-trip-name" class="text-xl md:text-2xl font-bold text-gray-900 truncate">旅行を選択</h1>
-                        </div>
-                    </div>
-                    <div id="header-controls" class="hidden py-3 border-t border-gray-200 sm:flex items-center justify-between gap-4">
-                        <div id="date-filter-container" class="flex items-center gap-2 min-w-0">
-                            <label for="date-filter" class="hidden sm:block text-sm text-gray-600 flex-shrink-0">日付フィルター:</label>
-                            <input type="date" id="date-filter" class="border-gray-300 rounded-md shadow-sm text-sm p-2 w-full">
-                            <button id="clear-date-filter" class="text-gray-500 hover:text-red-500 p-2 flex-shrink-0" title="フィルターを解除">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                                </svg>
-                            </button>
-                        </div>
-                        <button id="export-excel-btn" class="bg-indigo-500 hover:bg-indigo-600 text-white font-bold p-2 sm:py-2 sm:px-4 rounded-full sm:rounded-lg shadow-md transition duration-300 flex items-center flex-shrink-0 mr-2">
-                            <svg class="w-6 h-6 sm:w-5 sm:h-5 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                            </svg>
-                            <span class="hidden sm:inline">Excel出力</span>
-                        </button>
-                        <button id="add-schedule-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold p-2 sm:py-2 sm:px-4 rounded-full sm:rounded-lg shadow-md transition duration-300 flex items-center flex-shrink-0">
-                            <svg class="w-6 h-6 sm:w-5 sm:h-5 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
-                            </svg>
-                            <span class="hidden sm:inline">予定を追加</span>
-                        </button>
-                    </div>
-                </div>
-            </header>
-            <main class="flex-1 overflow-y-auto bg-gray-100 p-4 sm:p-6 lg:p-8">
-                <div id="schedule-list" class="flex space-x-6 overflow-x-auto pb-4 timeline-container"></div>
-                <div id="welcome-message" class="text-center text-gray-500 mt-10">
-                    <p class="text-lg">左のメニューから旅行を選択するか、新しい旅行を追加してください。</p>
-                </div>
-            </main>
+<body>
+<div id="app" class="flex overflow-hidden" style="height:100vh;height:100dvh;">
+
+  <div id="sidebar-overlay" class="fixed inset-0 bg-black/40 z-30 md:hidden"></div>
+  <aside id="sidebar" class="sidebar sidebar-closed fixed inset-y-0 left-0 z-40 w-72 bg-white shadow-xl md:static md:shadow-none md:border-r md:border-[var(--line)]">
+    <div class="flex flex-col h-full p-4">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold">🧳 旅行リスト</h2>
+        <button id="close-sidebar-btn" class="icon-btn md:hidden" aria-label="閉じる">✕</button>
+      </div>
+      <nav id="trip-list" class="flex-1 overflow-y-auto mb-3"></nav>
+      <button id="add-trip-btn" class="w-full text-white font-bold py-2.5 rounded-2xl" style="background:linear-gradient(135deg,var(--teal),var(--sky));">＋ 新しい旅行</button>
+      <div id="mileage-info" class="mt-4 pt-4 border-t border-[var(--line)]"></div>
+    </div>
+  </aside>
+
+  <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <header class="hero px-4 pt-3 pb-4" style="padding-top:max(12px,env(safe-area-inset-top));">
+      <div class="flex items-center gap-3 relative z-10">
+        <button id="open-sidebar-btn" class="md:hidden w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-xl flex-shrink-0" aria-label="メニュー">☰</button>
+        <div class="min-w-0">
+          <p class="text-xs opacity-80">✈ TRAVEL PLANNER</p>
+          <h1 id="current-trip-name" class="text-xl md:text-2xl font-bold truncate">旅行を選択</h1>
+          <p id="trip-sub" class="text-xs opacity-90"></p>
         </div>
-    </div>
-    <div id="modal" class="fixed inset-0 z-50 items-center justify-center hidden">
-        <div class="modal-backdrop fixed inset-0 bg-black opacity-50"></div>
-        <!-- 修正: Tailwindのz-50クラスを削除し、CSSのz-index: 1000が適用されるようにする -->
-        <div class="modal-content bg-white rounded-lg shadow-xl w-11/12 md:max-w-md mx-auto p-6 overflow-y-auto max-h-screen">
-            <h3 id="modal-title" class="text-2xl font-bold mb-4"></h3>
-            <form id="modal-form"></form>
+      </div>
+    </header>
+
+    <main id="main" class="flex-1 overflow-y-auto relative">
+      <div id="day-bar" class="px-4 py-3 hidden"><div id="day-chips" class="flex gap-2 overflow-x-auto no-scrollbar"></div></div>
+      <div class="px-4 pb-28 pt-2 max-w-2xl mx-auto">
+        <div id="hint" class="hidden mb-3 text-xs text-[var(--sub)] bg-white/70 rounded-xl px-3 py-2 flex gap-2 items-start">
+          <span>💡 カードを<b>長押し→ドラッグ</b>で並び替え(時刻が入れ替わります)。上の日付にドロップで日付移動、時刻をタップで時刻変更。</span>
+          <button id="hint-close" class="ml-auto flex-shrink-0">✕</button>
         </div>
+        <div id="schedule-list"></div>
+        <div id="welcome-message" class="text-center text-[var(--sub)] mt-16">
+          <p class="text-5xl mb-3">🗺️</p>
+          <p class="font-bold">旅行を選んで計画をはじめよう</p>
+          <p class="text-sm mt-1">左上のメニューから旅行を選択、または新規作成してください。</p>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<button id="fab" aria-label="予定を追加">＋</button>
+
+<div id="modal">
+  <div id="modal-backdrop" class="absolute inset-0 bg-black/50"></div>
+  <form id="modal-form" novalidate></form>
+</div>
+<div id="loading-spinner" class="fixed inset-0 z-[4000] bg-white/70 items-center justify-center" style="display:none;">
+  <div class="animate-spin rounded-full h-14 w-14 border-t-4 border-b-4" style="border-color:var(--sky);"></div>
+</div>
+<div id="toast"></div>
+
+<script>
+const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzuV3TY4d7-6UyNJPLrr0xSdLhwQNHjWaVgTuaM60xlXDC9b75Ebpak_TXELS9x6Cxn7w/exec";
+const API_KEY = "AIzaSyCg4cHbogYAIGUz41VnyjIyoTmA6ORjC2Q";
+
+const METHODS = [
+  { v: '',       label: '指定なし', icon: '📍', color: '#94a3b8' },
+  { v: '車',     label: '車',     icon: '🚗', color: '#f97316' },
+  { v: '徒歩',   label: '徒歩',   icon: '🚶', color: '#22c55e' },
+  { v: '飛行機', label: '飛行機', icon: '✈️', color: '#0ea5e9' },
+  { v: '新幹線', label: '新幹線', icon: '🚅', color: '#6366f1' },
+  { v: '電車',   label: '電車',   icon: '🚃', color: '#14b8a6' },
+  { v: 'バス',   label: 'バス',   icon: '🚌', color: '#eab308' },
+  { v: 'その他', label: 'その他', icon: '🧭', color: '#a855f7' },
+];
+const WEEK = ['日','月','火','水','木','金','土'];
+const STEP_MIN = 10;
+
+const state = {
+  tripLists: { active: [], archived: [] },
+  currentTrip: null,
+  schedules: [],
+  mileage: {},
+  scheduleCache: {},
+  selectedDay: null,
+  days: [],
+  isEditing: false,
+  editingId: null,
+};
+let directionsService = null;
+let currentAutocomplete = null;
+
+function initMapApi() {
+  if (typeof google !== 'undefined' && google.maps) directionsService = new google.maps.DirectionsService();
+}
+
+/* ---------- ユーティリティ ---------- */
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, '0');
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function methodInfo(v) { return METHODS.find(m => m.v === (v || '')) || METHODS[METHODS.length - 1]; }
+function partsOf(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return { valid: false, date: 'undated', h: 9, m: 0 };
+  return { valid: true, date: `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`, h: d.getHours(), m: d.getMinutes() };
+}
+const dayKey = s => partsOf(s.datetime).date;
+function toISO(dateStr, h, m) { return new Date(`${dateStr}T${pad(h)}:${pad(m)}:00`).toISOString(); }
+function sortSchedules() {
+  state.schedules.sort((a, b) => {
+    const A = new Date(a.datetime).getTime(), B = new Date(b.datetime).getTime();
+    return (isNaN(A) ? Infinity : A) - (isNaN(B) ? Infinity : B);
+  });
+}
+function showLoading(on) { $('loading-spinner').style.display = on ? 'flex' : 'none'; }
+let toastTimer;
+function showToast(message, type = 'success') {
+  const t = $('toast');
+  t.textContent = message;
+  t.style.background = type === 'error' ? '#ef4444' : '#0f766e';
+  t.style.opacity = '1';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.opacity = '0'; }, 2800);
+}
+
+async function serverCall(action, ...args) {
+  try {
+    const response = await fetch(WEB_APP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action, args })
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const result = await response.json();
+    if (result.success) return result.data;
+    throw new Error(result.error || 'API側でエラーが発生しました');
+  } catch (error) {
+    console.error('Server Call Error:', error);
+    showToast(`通信エラー: ${error.message}`, 'error');
+    throw error;
+  }
+}
+
+function destroyAutocompleteIfAny() {
+  try {
+    if (currentAutocomplete) {
+      google.maps.event.clearInstanceListeners(currentAutocomplete);
+    }
+  } catch (e) {}
+  currentAutocomplete = null;
+  document.querySelectorAll('.pac-container').forEach(el => el.remove());
+}
+
+/* ---------- モーダル(ボトムシート) ---------- */
+function openModal(title, bodyHtml, submitLabel, onSubmit) {
+  const form = $('modal-form');
+  form.innerHTML = `
+    <div id="modal-sheet" class="relative bg-white w-full md:max-w-md rounded-t-3xl md:rounded-3xl flex flex-col shadow-2xl">
+      <div class="flex items-center justify-between px-5 pt-4 pb-3 border-b border-[var(--line)] flex-shrink-0">
+        <h3 class="text-lg font-bold">${esc(title)}</h3>
+        <button type="button" id="modal-close" class="icon-btn" aria-label="閉じる">✕</button>
+      </div>
+      <div class="overflow-y-auto px-5 py-4 flex-1 min-h-0" style="-webkit-overflow-scrolling:touch;overscroll-behavior:contain;">${bodyHtml}</div>
+      <div class="flex gap-2 px-5 pt-3 border-t border-[var(--line)] flex-shrink-0" style="padding-bottom:max(12px,env(safe-area-inset-bottom));">
+        <button type="button" id="cancel-btn" class="flex-1 py-3 rounded-2xl bg-[#efe9df] font-bold">キャンセル</button>
+        <button type="submit" id="submit-btn" class="flex-[2] py-3 rounded-2xl text-white font-bold" style="background:linear-gradient(135deg,var(--teal),var(--sky));">${esc(submitLabel)}</button>
+      </div>
+    </div>`;
+  form.className = 'w-full flex justify-center';
+  $('modal').classList.add('open');
+  document.body.classList.add('modal-open');
+  $('modal-close').addEventListener('click', hideModal);
+  $('cancel-btn').addEventListener('click', hideModal);
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const btn = $('submit-btn');
+    btn.disabled = true; btn.textContent = '保存中...';
+    try {
+      await onSubmit(new FormData(form), form);
+    } catch (err) {
+      showToast(err.message || 'エラーが発生しました', 'error');
+      btn.disabled = false; btn.textContent = submitLabel;
+    }
+  };
+}
+function hideModal() {
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  destroyAutocompleteIfAny();
+  $('modal').classList.remove('open');
+  $('modal-form').innerHTML = '';
+  document.body.classList.remove('modal-open');
+}
+
+/* ---------- サイドバー ---------- */
+function openSidebar() { $('sidebar').classList.remove('sidebar-closed'); $('sidebar-overlay').classList.add('show'); }
+function closeSidebar() { $('sidebar').classList.add('sidebar-closed'); $('sidebar-overlay').classList.remove('show'); }
+
+function renderTrips() {
+  const tripList = $('trip-list');
+  tripList.innerHTML = '';
+  const createItem = (tripName, isArchived) => {
+    const wrap = document.createElement('div'); wrap.className = 'relative';
+    const btn = document.createElement('button');
+    btn.className = 'trip-item' + (state.currentTrip === tripName ? ' active' : '');
+    btn.textContent = tripName;
+    btn.addEventListener('click', () => { handleTripSelect(tripName); closeSidebar(); });
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'icon-btn absolute right-0.5 top-1/2 -translate-y-1/2';
+    menuBtn.innerHTML = '⋮';
+    menuBtn.addEventListener('click', e => { e.stopPropagation(); toggleTripMenu(e.currentTarget); });
+    const menu = document.createElement('div');
+    menu.className = 'trip-menu hidden absolute right-0 top-full mt-1 w-44 bg-white rounded-xl shadow-lg z-20 border border-[var(--line)] overflow-hidden';
+    menu.innerHTML = `
+      <button class="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50" data-action="${isArchived ? 'unarchive' : 'archive'}" data-trip-name="${esc(tripName)}">${isArchived ? 'アクティブに戻す' : 'アーカイブする'}</button>
+      <button class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50" data-action="delete" data-trip-name="${esc(tripName)}">削除</button>`;
+    wrap.append(btn, menuBtn, menu);
+    return wrap;
+  };
+  (state.tripLists.active || []).forEach(n => tripList.appendChild(createItem(n, false)));
+  if (state.tripLists.archived && state.tripLists.archived.length) {
+    const details = document.createElement('details');
+    details.className = 'mt-4 pt-3 border-t border-[var(--line)]';
+    details.innerHTML = '<summary class="font-bold text-sm text-[var(--sub)] cursor-pointer">📦 アーカイブ</summary>';
+    const box = document.createElement('div'); box.className = 'mt-2 space-y-1';
+    state.tripLists.archived.forEach(n => box.appendChild(createItem(n, true)));
+    details.appendChild(box);
+    tripList.appendChild(details);
+  }
+}
+function toggleTripMenu(button) {
+  closeAllTripMenus(button);
+  button.nextElementSibling.classList.toggle('hidden');
+}
+function closeAllTripMenus(except = null) {
+  document.querySelectorAll('.trip-menu').forEach(menu => {
+    if (!except || menu.previousElementSibling !== except) menu.classList.add('hidden');
+  });
+}
+
+function renderMileage() {
+  const item = (p, a) => {
+    const n = state.mileage?.[p]?.[a] || '未設定';
+    return `<div class="flex items-center justify-between text-sm">
+      <span class="font-bold text-[var(--sub)]">${a}</span>
+      <span class="flex items-center gap-1">
+        <span>${esc(n)}</span>
+        <button data-person="${p}" data-airline="${a}" class="copy-btn icon-btn !w-7 !h-7" title="コピー">📋</button>
+      </span></div>`;
+  };
+  const section = p => `<div><h4 class="font-bold text-sm">${p}</h4><div class="mt-1 space-y-1">${item(p,'ANA')}${item(p,'JAL')}</div></div>`;
+  $('mileage-info').innerHTML = `
+    <details>
+      <summary class="font-bold text-sm text-[var(--sub)] cursor-pointer">✈ マイレージ情報</summary>
+      <div class="mt-3 space-y-3">${section('ぱら')}${section('りな')}</div>
+      <button id="edit-mileage-btn" class="mt-3 w-full text-sm bg-[#efe9df] font-bold py-2 rounded-xl">編集</button>
+    </details>`;
+  document.querySelectorAll('.copy-btn').forEach(b => b.addEventListener('click', handleCopyMileage));
+  $('edit-mileage-btn').addEventListener('click', showEditMileageModal);
+}
+
+/* ---------- 予定描画 ---------- */
+function computeDays() {
+  const set = new Set(state.schedules.map(dayKey));
+  state.days = [...set].sort((a, b) => a === 'undated' ? 1 : b === 'undated' ? -1 : a.localeCompare(b));
+  if (!state.days.includes(state.selectedDay)) {
+    const today = partsOf(new Date().toISOString()).date;
+    state.selectedDay = state.days.includes(today) ? today : (state.days[0] || null);
+  }
+}
+function chipLabel(key, idx) {
+  if (key === 'undated') return { d1: '未定', d2: '日付なし' };
+  const d = new Date(key + 'T00:00:00');
+  return { d1: `${idx + 1}日目`, d2: `${d.getMonth()+1}/${d.getDate()}(${WEEK[d.getDay()]})` };
+}
+
+function renderSchedules() {
+  computeDays();
+  const list = $('schedule-list');
+  const bar = $('day-bar');
+  const chips = $('day-chips');
+
+  $('fab').classList.toggle('show', !!state.currentTrip);
+  $('trip-sub').textContent = state.currentTrip
+    ? `${state.days.filter(d => d !== 'undated').length}日間 ・ ${state.schedules.length}件の予定` : '';
+
+  if (!state.currentTrip) { bar.classList.add('hidden'); list.innerHTML = ''; return; }
+
+  if (!state.schedules.length) {
+    bar.classList.add('hidden');
+    $('hint').classList.add('hidden');
+    list.innerHTML = `<div class="text-center text-[var(--sub)] mt-14">
+      <p class="text-5xl mb-3">📝</p><p class="font-bold">まだ予定がありません</p>
+      <p class="text-sm mt-1">右下の ＋ ボタンから最初の予定を追加しましょう</p></div>`;
+    return;
+  }
+
+  bar.classList.remove('hidden');
+  chips.innerHTML = state.days.map((k, i) => {
+    const l = chipLabel(k, i);
+    return `<button type="button" class="day-chip ${k === state.selectedDay ? 'active' : ''}" data-day="${k}"><span class="d1">${l.d1}</span><span class="d2">${l.d2}</span></button>`;
+  }).join('');
+
+  $('hint').classList.toggle('hidden', !!localStorage.getItem('hintClosed') || state.schedules.length < 2);
+
+  const items = state.schedules.filter(s => dayKey(s) === state.selectedDay);
+  list.innerHTML = `<div id="timeline">${items.map(cardHtml).join('')}</div>`;
+}
+
+function cardHtml(s) {
+  const p = partsOf(s.datetime);
+  const time = p.valid ? `${pad(p.h)}:${pad(p.m)}` : '--:--';
+  const mi = methodInfo(s.method);
+  const tags = [
+    s.method ? `<span class="tag" style="background:${mi.color}22;color:${mi.color}">${mi.icon} ${esc(s.method)}</span>` : '',
+    s.seatInfo ? `<span class="tag bg-gray-100 text-gray-700">💺 ${esc(s.seatInfo)}</span>` : ''
+  ].join('');
+  const links = [
+    s.url ? `<a class="link-chip" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">🔗 参考1</a>` : '',
+    s.url2 ? `<a class="link-chip" href="${esc(s.url2)}" target="_blank" rel="noopener noreferrer">🔗 参考2</a>` : '',
+    s.parkingUrl ? `<a class="link-chip" href="${esc(s.parkingUrl)}" target="_blank" rel="noopener noreferrer">🅿️ 駐車場</a>` : ''
+  ].join('');
+  return `
+  <div class="sch-row" data-id="${esc(s.id)}" style="--accent:${mi.color}">
+    <div class="time-col"><button type="button" class="time-chip" data-action="time" data-id="${esc(s.id)}">${time}</button></div>
+    <div class="rail"><span class="dot"></span></div>
+    <div class="card-main">
+      <div class="flex items-start justify-between gap-2">
+        <h4 class="text-base font-bold leading-snug">${esc(s.destination || '(件名なし)')}</h4>
+        <div class="flex flex-shrink-0 -mr-2 -mt-1">
+          <button type="button" class="icon-btn" data-action="edit" data-id="${esc(s.id)}" title="編集">✏️</button>
+          <button type="button" class="icon-btn" data-action="delete" data-id="${esc(s.id)}" title="削除">🗑️</button>
+        </div>
+      </div>
+      ${tags ? `<div class="flex flex-wrap gap-1.5 mt-1.5">${tags}</div>` : ''}
+      ${s.address ? `<p class="text-xs text-[var(--sub)] mt-2">📍 ${esc(s.address)}</p>` : ''}
+      ${s.parkingInfo ? `<p class="text-xs text-[var(--sub)] mt-1 whitespace-pre-wrap">🅿️ ${esc(s.parkingInfo)}</p>` : ''}
+      ${links ? `<div class="flex flex-wrap gap-1.5 mt-2">${links}</div>` : ''}
+      ${s.memo ? `<p class="text-sm bg-[#faf6ee] rounded-xl p-2 mt-2 whitespace-pre-wrap">${esc(s.memo)}</p>` : ''}
+      ${s.address ? `
+        <div class="mt-2.5 pt-2.5 border-t border-dashed border-[var(--line)]">
+          <div class="flex items-center gap-2">
+            <button type="button" class="text-xs bg-[#efe9df] font-bold py-1 px-3 rounded-full" data-action="map" data-address="${esc(s.address)}">🗺 地図を表示</button>
+            <a class="text-xs border border-[var(--line)] font-bold py-1 px-3 rounded-full" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.address)}" target="_blank" rel="noopener noreferrer">アプリで開く</a>
+          </div>
+          <div class="map-container hidden mt-2 h-44 bg-gray-200 rounded-xl overflow-hidden"></div>
+        </div>` : ''}
     </div>
-    <div id="loading-spinner" class="fixed inset-0 z-50 bg-white bg-opacity-75 flex items-center justify-center hidden">
-        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500"></div>
-    </div>
-    <div id="toast" class="fixed bottom-5 right-5 bg-green-500 text-white py-2 px-4 rounded-lg shadow-lg opacity-0 transition-opacity duration-300 z-50">
-        <p id="toast-message"></p>
-    </div>
+  </div>`;
+}
 
-    <script>
-      // ★★★★★【要設定】先ほど取得したGASのウェブアプリURLを貼り付けてください ★★★★★
-        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzuV3TY4d7-6UyNJPLrr0xSdLhwQNHjWaVgTuaM60xlXDC9b75Ebpak_TXELS9x6Cxn7w/exec";
-        const API_KEY = "AIzaSyCg4cHbogYAIGUz41VnyjIyoTmA6ORjC2Q";
+/* ---------- 旅行の選択・初期化 ---------- */
+async function init() {
+  showLoading(true);
+  try {
+    const [tripLists, mileage] = await Promise.all([serverCall('getTrips'), serverCall('getMileage')]);
+    state.tripLists = tripLists || { active: [], archived: [] };
+    state.mileage = mileage || { 'ぱら': {}, 'りな': {} };
+    renderTrips(); renderMileage();
+    const last = localStorage.getItem('lastSelectedTrip');
+    if (last && (state.tripLists.active.includes(last) || state.tripLists.archived.includes(last))) {
+      await handleTripSelect(last);
+    }
+  } catch (e) {
+    $('welcome-message').innerHTML = '<p class="text-red-500 font-bold">データの初期化に失敗しました。</p>';
+  } finally {
+    showLoading(false);
+  }
+}
 
-        let state = {
-            tripLists: { active: [], archived: [] },
-            currentTrip: null,
-            schedules: [],
-            mileage: {},
-            isEditing: false,
-            editingId: null,
-            scheduleCache: {},
-        };
-        
-        let directionsService;
-        let currentAutocomplete = null; 
-        let pacObserver = null; 
+async function handleTripSelect(tripName) {
+  state.currentTrip = tripName;
+  state.selectedDay = null;
+  localStorage.setItem('lastSelectedTrip', tripName);
+  $('current-trip-name').textContent = tripName;
+  $('welcome-message').classList.add('hidden');
+  renderTrips();
+  $('main').scrollTop = 0;
 
-        // Google Maps APIのコールバック関数
-        function initMapApi() {
-            if (typeof google !== 'undefined' && google.maps) {
-                directionsService = new google.maps.DirectionsService();
-            }
-        }
+  if (state.scheduleCache[tripName]) {
+    state.schedules = state.scheduleCache[tripName];
+    renderSchedules();
+    return;
+  }
+  $('schedule-list').innerHTML = '<div class="text-center text-[var(--sub)] p-10">読み込み中...</div>';
+  try {
+    const schedules = await serverCall('getSchedules', tripName);
+    if (state.currentTrip !== tripName) return;
+    state.schedules = schedules || [];
+    state.scheduleCache[tripName] = state.schedules;
+    renderSchedules();
+  } catch (e) {
+    $('schedule-list').innerHTML = '<div class="text-center text-red-500 p-10">予定の読み込みに失敗しました。</div>';
+  }
+}
 
-        // サーバーとの通信 (fetch + text/plain でCORS回避)
-        async function serverCall(action, ...args) {
-            try {
-                const response = await fetch(WEB_APP_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'text/plain', // GASへのPOSTはtext/plainにする必要があります
-                    },
-                    body: JSON.stringify({ action: action, args: args })
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    return result.data;
-                } else {
-                    throw new Error(result.error || 'API側でエラーが発生しました');
-                }
-            } catch (error) {
-                console.error('Server Call Error:', error);
-                showToast(`通信エラー: ${error.message}`, 'error');
-                throw error;
-            }
-        }
+async function reloadCurrentTrip() {
+  const t = state.currentTrip;
+  delete state.scheduleCache[t];
+  await handleTripSelect(t);
+}
 
-        // Autocompleteを安全に破棄
-        function destroyAutocompleteIfAny() {
-            try {
-                if (currentAutocomplete) {
-                    google.maps.event.clearInstanceListeners(currentAutocomplete);
-                    if (currentAutocomplete.unbindAll) currentAutocomplete.unbindAll();
-                }
-            } catch (e) {
-                console.warn('Failed to destroy autocomplete:', e);
-            }
-            currentAutocomplete = null;
-        }
+/* ---------- 旅行追加 ---------- */
+function showAddTripModal() {
+  openModal('新しい旅行を追加', `
+    <label class="lbl">旅行名</label>
+    <input type="text" id="newTripName" name="newTripName" class="field" placeholder="例: 沖縄 2026夏" autocomplete="off">`,
+    '作成', async (fd) => {
+      const name = (fd.get('newTripName') || '').trim();
+      if (!name) throw new Error('旅行名を入力してください');
+      await serverCall('addTrip', name);
+      state.tripLists = await serverCall('getTrips');
+      hideModal();
+      showToast(`旅行「${name}」を作成しました`);
+      await handleTripSelect(name);
+    });
+  setTimeout(() => $('newTripName') && $('newTripName').focus(), 100);
+}
 
-        // --- ここから下は、ページの準備が完了してから実行される ---
-        window.onload = () => {
-            
-            // --- DOM要素の取得 ---
-            const sidebar = document.getElementById('sidebar');
-            const openSidebarBtn = document.getElementById('open-sidebar-btn');
-            const closeSidebarBtn = document.getElementById('close-sidebar-btn');
-            const tripList = document.getElementById('trip-list');
-            const addTripBtn = document.getElementById('add-trip-btn');
-            const mileageInfo = document.getElementById('mileage-info');
-            const currentTripNameEl = document.getElementById('current-trip-name');
-            const addScheduleBtn = document.getElementById('add-schedule-btn');
-            const scheduleList = document.getElementById('schedule-list');
-            const welcomeMessage = document.getElementById('welcome-message');
-            const modal = document.getElementById('modal');
-            const modalTitle = document.getElementById('modal-title');
-            const modalForm = document.getElementById('modal-form');
-            const loadingSpinner = document.getElementById('loading-spinner');
-            const toast = document.getElementById('toast');
-            const toastMessage = document.getElementById('toast-message');
-            const headerControls = document.getElementById('header-controls');
-            const dateFilterInput = document.getElementById('date-filter');
-            const clearDateFilterBtn = document.getElementById('clear-date-filter');
-            
-            // --- UIヘルパー関数 ---
-            function showLoading(isLoading) { loadingSpinner.classList.toggle('hidden', !isLoading); }
-            function showToast(message, type = 'success') {
-                toastMessage.textContent = message;
-                toast.className = `fixed bottom-5 right-5 text-white py-2 px-4 rounded-lg shadow-lg transition-opacity duration-300 z-50 ${type === 'error' ? 'bg-red-500' : 'bg-green-500'}`;
-                toast.classList.remove('opacity-0');
-                setTimeout(() => { toast.classList.add('opacity-0'); }, 3000);
-            }
-            function hideModal() {
-                // iOSのフォーカス残り対策
-                if (document.activeElement && typeof document.activeElement.blur === 'function') {
-                    document.activeElement.blur();
-                }
+/* ---------- マイレージ ---------- */
+function showEditMileageModal() {
+  const para = state.mileage['ぱら'] || {}, rina = state.mileage['りな'] || {};
+  const row = (name, label, val) => `
+    <div class="mb-3"><label class="lbl">${label}</label>
+    <input type="text" name="${name}" value="${esc(val || '')}" class="field"></div>`;
+  openModal('マイレージ情報を編集', `
+    <h4 class="font-bold mb-2">ぱら</h4>
+    ${row('ぱら_ANA','ANA マイレージクラブ番号',para.ANA)}${row('ぱら_JAL','JAL マイレージバンク番号',para.JAL)}
+    <h4 class="font-bold mt-4 mb-2">りな</h4>
+    ${row('りな_ANA','ANA マイレージクラブ番号',rina.ANA)}${row('りな_JAL','JAL マイレージバンク番号',rina.JAL)}`,
+    '保存', async (fd) => {
+      const data = {};
+      for (const [k, v] of fd.entries()) data[k] = v;
+      state.mileage = await serverCall('updateMileage', data);
+      renderMileage(); hideModal();
+      showToast('マイレージ情報を更新しました');
+    });
+}
+function handleCopyMileage(e) {
+  const p = e.currentTarget.dataset.person, a = e.currentTarget.dataset.airline, n = state.mileage?.[p]?.[a];
+  if (n && n !== '未設定') {
+    navigator.clipboard.writeText(String(n)).then(() => showToast(`${p}さんの${a}番号をコピーしました`)).catch(() => showToast('コピーに失敗しました', 'error'));
+  } else showToast('番号が設定されていません', 'error');
+}
 
-                // Autocompleteと監視を確実に破棄
-                destroyAutocompleteIfAny();
-                if (pacObserver) { try { pacObserver.disconnect(); } catch (_) {} pacObserver = null; }
+/* ---------- 時刻セレクト(10分刻み) ---------- */
+function timeSelectsHtml(h, m, idPrefix = '') {
+  const hours = Array.from({ length: 24 }, (_, i) => `<option value="${i}" ${i === h ? 'selected' : ''}>${pad(i)}</option>`).join('');
+  const mins = new Set(); for (let i = 0; i < 60; i += STEP_MIN) mins.add(i);
+  mins.add(m); // 既存データが10分刻みでなくても失わない
+  const minOpts = [...mins].sort((a, b) => a - b).map(i => `<option value="${i}" ${i === m ? 'selected' : ''}>${pad(i)}</option>`).join('');
+  return `<div class="flex items-center gap-2 mt-1">
+    <select id="${idPrefix}hour" name="hour" class="field !mt-0 text-center">${hours}</select>
+    <span class="font-bold">:</span>
+    <select id="${idPrefix}minute" name="minute" class="field !mt-0 text-center">${minOpts}</select></div>`;
+}
 
-                // 残骸のドロップダウンも削除
-                document.querySelectorAll('.pac-container').forEach(el => el.remove());
+function showTimeModal(id) {
+  const s = state.schedules.find(x => x.id === id); if (!s) return;
+  const p = partsOf(s.datetime);
+  openModal('時刻を変更', `<p class="text-sm text-[var(--sub)] mb-2">${esc(s.destination || '')}</p>
+    <label class="lbl">時刻</label>${timeSelectsHtml(p.h, p.m)}`, '変更', async (fd) => {
+      const updated = { ...s, datetime: toISO(p.date, +fd.get('hour'), +fd.get('minute')) };
+      hideModal();
+      await persistChanges([updated]);
+    });
+}
 
-                // モーダルクローズ
-                modal.classList.add('hidden');
-                modal.classList.remove('flex');
-                
-                modalForm.innerHTML = '';
+/* ---------- 予定の追加・編集モーダル ---------- */
+function showScheduleModal(isEditing = false, id = null) {
+  state.isEditing = isEditing; state.editingId = id;
+  const s = isEditing ? (state.schedules.find(x => x.id === id) || {}) : {};
+  let p;
+  if (isEditing && s.datetime) p = partsOf(s.datetime);
+  else {
+    const day = state.selectedDay && state.selectedDay !== 'undated' ? state.selectedDay : partsOf(new Date().toISOString()).date;
+    const dayItems = state.schedules.filter(x => dayKey(x) === day);
+    const last = dayItems[dayItems.length - 1];
+    let h = 9, m = 0;
+    if (last) { const lp = partsOf(last.datetime); h = Math.min(23, lp.h + 1); m = lp.m; }
+    p = { date: day, h, m };
+  }
+  const hasMore = !!(s.parkingInfo || s.parkingUrl || s.url || s.url2 || s.memo);
+  const chips = METHODS.map(mt => `<button type="button" class="m-chip ${((s.method || '') === mt.v) ? 'active' : ''}" data-v="${mt.v}">${mt.icon} ${mt.label}</button>`).join('');
 
-                // 背面地図の無効化解除
-                document.body.classList.remove('modal-open');
-            }
+  openModal(isEditing ? '予定を編集' : '予定を追加', `
+    <div class="space-y-4">
+      <div><label class="lbl">予定の件名</label>
+        <input type="text" id="destination" name="destination" value="${esc(s.destination || '')}" class="field" placeholder="例: 首里城" autocomplete="off"></div>
+      <div class="grid grid-cols-5 gap-3">
+        <div class="col-span-3"><label class="lbl">日付</label>
+          <input type="date" id="date" name="date" value="${p.date}" class="field"></div>
+        <div class="col-span-2"><label class="lbl">時刻(10分刻み)</label>${timeSelectsHtml(p.h, p.m)}</div>
+      </div>
+      <div><label class="lbl">場所・住所</label>
+        <input type="text" id="address" name="address" value="${esc(s.address || '')}" class="field" placeholder="検索して選択できます" autocomplete="off"></div>
+      <div><label class="lbl">移動手段</label>
+        <input type="hidden" id="method" name="method" value="${esc(s.method || '')}">
+        <div id="method-chips" class="flex gap-2 overflow-x-auto no-scrollbar mt-1 pb-1">${chips}</div></div>
+      <div id="seat-info-container" class="hidden"><label class="lbl">座席情報</label>
+        <input type="text" id="seatInfo" name="seatInfo" value="${esc(s.seatInfo || '')}" class="field"></div>
+      <div id="route-search-container" class="hidden p-3 bg-[#faf6ee] rounded-2xl space-y-2"></div>
+      <details class="more" ${hasMore ? 'open' : ''}>
+        <summary>➕ 詳細(駐車場・URL・メモ)</summary>
+        <div class="space-y-3">
+          <div><label class="lbl">駐車場の詳細(料金、場所など)</label>
+            <textarea id="parkingInfo" name="parkingInfo" rows="2" class="field">${esc(s.parkingInfo || '')}</textarea></div>
+          <div><label class="lbl">駐車場 参考URL</label>
+            <input type="url" name="parkingUrl" value="${esc(s.parkingUrl || '')}" class="field"></div>
+          <div><label class="lbl">参考URL 1</label>
+            <input type="url" name="url" value="${esc(s.url || '')}" class="field"></div>
+          <div><label class="lbl">参考URL 2</label>
+            <input type="url" name="url2" value="${esc(s.url2 || '')}" class="field"></div>
+          <div><label class="lbl">メモ</label>
+            <textarea id="memo" name="memo" rows="3" class="field">${esc(s.memo || '')}</textarea></div>
+        </div>
+      </details>
+    </div>`,
+    '保存', async (fd) => {
+      const dest = (fd.get('destination') || '').trim();
+      const dateStr = fd.get('date');
+      if (!dest) throw new Error('件名を入力してください');
+      if (!dateStr) throw new Error('日付を入力してください');
+      const finalSchedule = {
+        id: state.isEditing ? state.editingId : null,
+        method: fd.get('method') || '',
+        datetime: toISO(dateStr, +fd.get('hour'), +fd.get('minute')),
+        destination: dest,
+        address: fd.get('address') || '',
+        url: fd.get('url') || '',
+        url2: fd.get('url2') || '',
+        memo: fd.get('memo') || '',
+        seatInfo: fd.get('seatInfo') || '',
+        parkingInfo: fd.get('parkingInfo') || '',
+        parkingUrl: fd.get('parkingUrl') || ''
+      };
+      await serverCall(state.isEditing ? 'updateSchedule' : 'addSchedule', state.currentTrip, finalSchedule);
+      delete state.scheduleCache[state.currentTrip];
+      state.selectedDay = dateStr;
+      hideModal();
+      showToast(`予定を${state.isEditing ? '更新' : '追加'}しました`);
+      const keepDay = dateStr;
+      await handleTripSelect(state.currentTrip);
+      if (state.days.includes(keepDay)) { state.selectedDay = keepDay; renderSchedules(); }
+    });
 
-            // --- 描画関数 ---
-            function renderTrips() {
-                tripList.innerHTML = '';
-                const createTripListItem = (tripName, isArchived = false) => {
-                    const itemContainer = document.createElement('div'); itemContainer.className = 'relative group';
-                    const button = document.createElement('button'); button.className = `w-full text-left pr-10 pl-4 py-2 rounded-lg transition duration-200 ${state.currentTrip === tripName ? 'bg-blue-100 text-blue-700 font-semibold' : 'text-gray-600 hover:bg-gray-100'}`;
-                    button.textContent = tripName; button.addEventListener('click', () => handleTripSelect(tripName));
-                    const menuButton = document.createElement('button'); menuButton.className = 'absolute right-1 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-700 rounded-full opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity';
-                    menuButton.innerHTML = `<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"></path></svg>`;
-                    menuButton.addEventListener('click', (e) => { e.stopPropagation(); toggleTripMenu(e.currentTarget); });
-                    const menuDropdown = document.createElement('div'); menuDropdown.className = 'trip-menu hidden absolute right-0 mt-2 w-40 bg-white rounded-md shadow-lg z-10 border';
-                    menuDropdown.innerHTML = `<button class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" data-action="${isArchived ? 'unarchive' : 'archive'}" data-trip-name="${tripName}">${isArchived ? 'アクティブに戻す' : 'アーカイブする'}</button><button class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50" data-action="delete" data-trip-name="${tripName}">削除</button>`;
-                    itemContainer.append(button, menuButton, menuDropdown); return itemContainer;
-                };
-                if(state.tripLists.active) state.tripLists.active.forEach(tripName => tripList.appendChild(createTripListItem(tripName, false)));
-                if (state.tripLists.archived && state.tripLists.archived.length > 0) {
-                    const details = document.createElement('details'); details.className = 'mt-4 pt-4 border-t';
-                    const summary = document.createElement('summary'); summary.className = 'font-semibold text-gray-500 cursor-pointer'; summary.textContent = 'アーカイブ';
-                    details.appendChild(summary);
-                    const archivedList = document.createElement('div'); archivedList.className = 'mt-2 space-y-1';
-                    state.tripLists.archived.forEach(tripName => archivedList.appendChild(createTripListItem(tripName, true)));
-                    details.appendChild(archivedList); tripList.appendChild(details);
-                }
-            }
+  /* オートコンプリート */
+  const addressInput = $('address');
+  if (window.google && google.maps && google.maps.places) {
+    destroyAutocompleteIfAny();
+    currentAutocomplete = new google.maps.places.Autocomplete(addressInput, { fields: ['formatted_address', 'name'] });
+    currentAutocomplete.addListener('place_changed', () => {
+      const place = currentAutocomplete.getPlace(); if (!place) return;
+      let addr = place.formatted_address || '';
+      if (place.name && addr.includes(place.name)) {
+        addr = addr.replace(place.name, '').replace(/^〒[0-9-]+/, '').trim();
+        if (addr.startsWith('、') || addr.startsWith(',')) addr = addr.substring(1).trim();
+      }
+      $('address').value = addr;
+      if (place.name && !$('destination').value) $('destination').value = place.name;
+    });
+  }
+  // Enterキーで送信されないように(オートコンプリート選択時の誤爆防止)
+  addressInput.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
 
-            function renderMileage() {
-                const renderItem = (p, a) => {
-                    const n = state.mileage?.[p]?.[a] || '未設定';
-                    return `<div class="flex items-center justify-between text-sm">
-                            <span class="font-medium text-gray-600">${a}:</span>
-                            <div class="flex items-center gap-2">
-                                <span id="mileage-${p}-${a}" class="text-gray-800">${n}</span>
-                                <button data-person="${p}" data-airline="${a}" class="copy-btn text-gray-400 hover:text-blue-500" title="${p}さんの${a}番号をコピー">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2z"></path>
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>`;
-                };
-                const renderSection = p => `
-                    <div>
-                        <h4 class="font-bold text-md text-gray-600">${p}</h4>
-                        <div class="mt-1 space-y-2">
-                            ${renderItem(p, 'ANA')}
-                            ${renderItem(p, 'JAL')}
-                        </div>
-                    </div>`;
+  /* 移動手段チップ */
+  const toggleDetail = () => {
+    const v = $('method').value;
+    $('seat-info-container').classList.toggle('hidden', !['飛行機', '新幹線'].includes(v));
+    const rc = $('route-search-container');
+    const showRoute = ['車', '徒歩'].includes(v);
+    rc.classList.toggle('hidden', !showRoute);
+    if (showRoute && !rc.dataset.ready) {
+      let prev = '';
+      const idx = state.isEditing ? state.schedules.findIndex(x => x.id === state.editingId) : state.schedules.length;
+      for (let i = idx - 1; i >= 0; i--) { if (state.schedules[i].address) { prev = state.schedules[i].address; break; } }
+      rc.innerHTML = `<h5 class="text-sm font-bold">🧭 ルート検索</h5>
+        <div><label class="lbl">出発地</label><input type="text" id="origin" value="${esc(prev)}" class="field"></div>
+        <button type="button" id="route-search-btn" class="w-full bg-[var(--teal)] text-white font-bold py-2 rounded-xl text-sm">検索</button>
+        <div id="route-results" class="text-sm"></div>`;
+      $('route-search-btn').addEventListener('click', handleRouteSearch);
+      rc.dataset.ready = '1';
+    }
+  };
+  $('method-chips').addEventListener('click', e => {
+    const b = e.target.closest('.m-chip'); if (!b) return;
+    $('method').value = b.dataset.v;
+    document.querySelectorAll('#method-chips .m-chip').forEach(c => c.classList.toggle('active', c === b));
+    toggleDetail();
+  });
+  toggleDetail();
+}
 
-                mileageInfo.innerHTML = `
-                    <h3 class="text-lg font-semibold text-gray-700 mb-3">マイレージ情報</h3>
-                    <div class="space-y-4">
-                        ${renderSection('ぱら')}
-                        ${renderSection('りな')}
-                    </div>
-                    <button id="edit-mileage-btn" class="mt-4 w-full text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 px-4 rounded-lg">編集</button>
-                `;
+function handleRouteSearch() {
+  const o = $('origin').value, d = $('address').value, r = $('route-results');
+  if (!o || !d) { r.innerHTML = '<p class="text-red-600">出発地と目的地を入力してください。</p>'; return; }
+  if (!directionsService) { r.innerHTML = '<p class="text-red-600">地図APIの読み込み中です。少し待ってからお試しください。</p>'; return; }
+  r.innerHTML = '<p class="text-gray-500">検索中...</p>';
+  const mode = $('method').value === '徒歩' ? 'WALKING' : 'DRIVING';
+  directionsService.route({ origin: o, destination: d, travelMode: google.maps.TravelMode[mode] }, (res, status) => {
+    if (status === 'OK') {
+      const l = res.routes[0].legs[0];
+      r.innerHTML = `<div class="p-2 bg-green-50 border-l-4 border-green-400 rounded"><p><b>距離:</b> ${esc(l.distance.text)}</p><p><b>所要時間:</b> ${esc(l.duration.text)}</p></div>`;
+      const memo = $('memo');
+      const info = `[ルート情報: ${o} → ${d}, 所要時間: ${l.duration.text}]`;
+      const rest = memo.value.replace(/\[ルート情報:.*?\]\n?/, '');
+      memo.value = `${info}\n${rest}`.trim();
+    } else {
+      r.innerHTML = `<p class="text-red-600">ルートが見つかりませんでした: ${esc(status)}</p>`;
+    }
+  });
+}
 
-                document.querySelectorAll('.copy-btn').forEach(btn => btn.addEventListener('click', handleCopyMileage));
-                document.getElementById('edit-mileage-btn').addEventListener('click', showEditMileageModal);
-            }
+/* ---------- 変更の保存(楽観的更新) ---------- */
+async function persistChanges(changed) {
+  if (!changed.length) return;
+  changed.forEach(u => {
+    const i = state.schedules.findIndex(x => x.id === u.id);
+    if (i >= 0) state.schedules[i] = u;
+  });
+  sortSchedules();
+  state.scheduleCache[state.currentTrip] = state.schedules;
+  renderSchedules();
+  try {
+    await Promise.all(changed.map(u => serverCall('updateSchedule', state.currentTrip, u)));
+    showToast('保存しました');
+  } catch (e) {
+    await reloadCurrentTrip();
+  }
+}
 
-            function renderSchedules(filterDate = null) {
-                scheduleList.innerHTML = '';
-                let schedulesToRender = state.schedules;
-                if (filterDate) {
-                    schedulesToRender = state.schedules.filter(s => {
-                        const d = new Date(s.datetime);
-                        const y = d.getFullYear();
-                        const m = String(d.getMonth() + 1).padStart(2, '0');
-                        const dd = String(d.getDate()).padStart(2, '0');
-                        return `${y}-${m}-${dd}` === filterDate;
-                    });
-                }
-                if (!schedulesToRender || schedulesToRender.length === 0) {
-                    const message = filterDate ? `「${filterDate}」の予定はありません。` : 'この旅行にはまだ予定がありません。';
-                    scheduleList.innerHTML = `<p class="text-gray-500 text-center w-full">${message}</p>`;
-                    return;
-                }
+async function handleDeleteSchedule(id) {
+  if (!confirm('この予定を本当に削除しますか？')) return;
+  try {
+    await serverCall('deleteSchedule', state.currentTrip, id);
+    delete state.scheduleCache[state.currentTrip];
+    showToast('予定を削除しました');
+    const keep = state.selectedDay;
+    await handleTripSelect(state.currentTrip);
+    if (state.days.includes(keep)) { state.selectedDay = keep; renderSchedules(); }
+  } catch (e) {}
+}
 
-                const groupedByDate = schedulesToRender.reduce((acc, schedule) => {
-                    const date = new Date(schedule.datetime);
-                    const dateString = !isNaN(date.getTime())
-                        ? date.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
-                        : '日付未定';
-                    if (!acc[dateString]) acc[dateString] = [];
-                    acc[dateString].push(schedule);
-                    return acc;
-                }, {});
+/* ---------- 旅行のアーカイブ・削除 ---------- */
+function resetCurrentIfNeeded(tripName) {
+  if (state.currentTrip === tripName) {
+    state.currentTrip = null; state.schedules = [];
+    $('current-trip-name').textContent = '旅行を選択';
+    $('welcome-message').classList.remove('hidden');
+    renderSchedules();
+  }
+}
+async function handleArchiveTrip(name) {
+  if (!confirm(`「${name}」をアーカイブしますか？`)) return;
+  await serverCall('archiveTrip', name);
+  resetCurrentIfNeeded(name);
+  state.tripLists = await serverCall('getTrips'); renderTrips(); showToast('旅行をアーカイブしました');
+}
+async function handleUnarchiveTrip(name) {
+  await serverCall('unarchiveTrip', name);
+  state.tripLists = await serverCall('getTrips'); renderTrips(); showToast('旅行をアクティブに戻しました');
+}
+async function handleDeleteTrip(name) {
+  if (!confirm(`本当に「${name}」を削除しますか？\nこの操作は取り消せません。`)) return;
+  await serverCall('deleteTrip', name);
+  delete state.scheduleCache[name];
+  resetCurrentIfNeeded(name);
+  state.tripLists = await serverCall('getTrips'); renderTrips(); showToast('旅行を削除しました');
+}
 
-                for (const dateString in groupedByDate) {
-                    const dayColumn = document.createElement('div'); dayColumn.className = 'flex-shrink-0 w-80 md:w-96';
-                    const dayHeader = document.createElement('h3'); dayHeader.className = 'text-lg font-bold text-gray-700 mb-3 sticky top-0 bg-gray-100 py-2'; dayHeader.textContent = dateString;
-                    dayColumn.appendChild(dayHeader);
-                    const cardsContainer = document.createElement('div'); cardsContainer.className = 'space-y-4';
+/* ---------- 地図トグル ---------- */
+function handleMapToggle(button) {
+  const wrap = button.closest('.card-main');
+  const box = wrap && wrap.querySelector('.map-container'); if (!box) return;
+  if (box.classList.contains('hidden')) {
+    if (!box.dataset.loaded) {
+      const iframe = document.createElement('iframe');
+      iframe.width = '100%'; iframe.height = '100%'; iframe.style.border = '0'; iframe.allowFullscreen = true;
+      iframe.src = `https://www.google.com/maps/embed/v1/place?key=${API_KEY}&q=${encodeURIComponent(button.dataset.address)}`;
+      box.innerHTML = ''; box.appendChild(iframe); box.dataset.loaded = '1';
+    }
+    box.classList.remove('hidden'); button.textContent = '🗺 地図を隠す';
+  } else {
+    box.classList.add('hidden'); button.textContent = '🗺 地図を表示';
+  }
+}
 
-                    groupedByDate[dateString].forEach(s => {
-                        const date = new Date(s.datetime); 
-                        const formattedTime = !isNaN(date.getTime()) ? `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}` : '';
-                        const card = document.createElement('div'); card.className = 'bg-white rounded-lg shadow-md p-4 flex flex-col';
-                        card.innerHTML = `
-                            <div class="flex-1">
-                                <div class="flex justify-between items-start mb-2">
-                                    <p class="text-lg font-bold text-gray-600">${formattedTime}</p>
-                                    <div class="flex space-x-2 flex-shrink-0">
-                                        <button class="edit-btn text-gray-400 hover:text-blue-500" data-id="${s.id}" title="編集">
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z"></path></svg>
-                                        </button>
-                                        <button class="delete-btn text-gray-400 hover:text-red-500" data-id="${s.id}" title="削除">
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                        </button>
-                                    </div>
-                                </div>
-                                <h4 class="text-xl font-bold text-gray-800">${s.destination||'(件名なし)'}</h4>
-                                <div class="flex items-center flex-wrap gap-2 mt-2">
-                                    ${s.method?`<span class="bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">${s.method}</span>`:''}
-                                    ${s.seatInfo?`<span class="bg-gray-200 text-gray-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">${s.seatInfo}</span>`:''}
-                                </div>
-                                ${s.address?`<p class="text-sm text-gray-600 mt-2">${s.address}</p>`:''}
-                                ${s.parkingInfo?`
-                                    <div class="mt-2 flex items-start text-xs text-gray-500 gap-1.5">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
-                                        <p class="whitespace-pre-wrap">${s.parkingInfo}</p>
-                                    </div>`:''}
-                                ${s.parkingUrl?`<a href="${s.parkingUrl}" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-500 hover:underline mt-1 block url-link">駐車場URL</a>`:''}
-                                <div class="space-y-1 mt-2">
-                                    ${s.url?`<a href="${s.url}" target="_blank" rel="noopener noreferrer" class="text-sm text-blue-500 hover:underline block url-link">参考URL 1</a>`:''}
-                                    ${s.url2?`<a href="${s.url2}" target="_blank" rel="noopener noreferrer" class="text-sm text-blue-500 hover:underline block url-link">参考URL 2</a>`:''}
-                                </div>
-                                ${s.memo?`<p class="text-sm text-gray-700 bg-gray-50 p-2 mt-2 rounded-md whitespace-pre-wrap">${s.memo}</p>`:''}
-                                ${s.address?`
-                                    <div class="mt-3 pt-3 border-t border-gray-200">
-                                        <div class="flex items-center gap-2">
-                                            <button class="toggle-map-btn text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-1 px-3 rounded-lg" data-address="${s.address}">地図を表示</button>
-                                            <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.address)}" target="_blank" rel="noopener noreferrer" class="text-xs bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-semibold py-1 px-3 rounded-lg">アプリで開く</a>
-                                        </div>
-                                        <div class="map-container hidden mt-2 h-48 bg-gray-200 rounded-lg overflow-hidden"></div>
-                                    </div>`:''}
-                            </div>`;
-                        cardsContainer.appendChild(card);
-                    });
-                    dayColumn.appendChild(cardsContainer); 
-                    scheduleList.appendChild(dayColumn);
-                }
+/* ---------- 長押しドラッグ(並び替え・日付移動) ---------- */
+const LONG_PRESS_MS = 380;
+let press = null;   // 長押し待機中
+let drag = null;    // ドラッグ中
+let lastTouchAt = 0;
 
-                document.querySelectorAll('.edit-btn').forEach(btn => btn.addEventListener('click', (e) => showScheduleModal(true, e.currentTarget.dataset.id)));
-                document.querySelectorAll('.delete-btn').forEach(btn => btn.addEventListener('click', (e) => handleDeleteSchedule(e.currentTarget.dataset.id)));
-                document.querySelectorAll('.toggle-map-btn').forEach(btn => btn.addEventListener('click', handleMapToggle));
-            }
+function getPt(e) {
+  const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+  return { x: t.clientX, y: t.clientY };
+}
 
-            // --- コアロジック ---
-            async function init() {
-                showLoading(true);
-                try {
-                    const [tripLists, mileage] = await Promise.all([serverCall('getTrips'), serverCall('getMileage')]);
-                    state.tripLists = tripLists || { active: [], archived: [] };
-                    state.mileage = mileage || { 'ぱら': {}, 'りな': {} };
-                    renderTrips();
-                    renderMileage();
-                    const lastTrip = localStorage.getItem('lastSelectedTrip');
-                    if (lastTrip && (state.tripLists.active.includes(lastTrip) || state.tripLists.archived.includes(lastTrip))) {
-                        await handleTripSelect(lastTrip); 
-                    } else {
-                        headerControls.classList.add('hidden');
-                        headerControls.classList.remove('flex', 'sm:flex');
-                    }
-                } catch (error) {
-                    console.error("Initialization failed", error);
-                    welcomeMessage.innerHTML = `<p class="text-red-500">データの初期化に失敗しました。</p>`;
-                } finally {
-                    showLoading(false);
-                }
-            }
+function onPressStart(e) {
+  if (e.type === 'mousedown') {
+    if (Date.now() - lastTouchAt < 700 || e.button !== 0) return;
+  } else lastTouchAt = Date.now();
+  if (drag || state.selectedDay === 'undated') return;
+  const row = e.target.closest('.sch-row');
+  if (!row || e.target.closest('button,a,iframe,.map-container')) return;
+  const pt = getPt(e);
+  press = { row, start: pt, last: pt, timer: setTimeout(() => beginDrag(row, press.last), LONG_PRESS_MS) };
+  document.addEventListener('touchmove', onMove, { passive: false });
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('touchend', onEnd);
+  document.addEventListener('touchcancel', onEnd);
+  document.addEventListener('mouseup', onEnd);
+}
 
-            async function handleTripSelect(tripName) {
-                state.currentTrip = tripName;
-                localStorage.setItem('lastSelectedTrip', tripName);
-                currentTripNameEl.textContent = tripName;
-                welcomeMessage.classList.add('hidden');
-                headerControls.classList.remove('hidden');
-                headerControls.classList.add('flex', 'sm:flex');
-                dateFilterInput.value = '';
-                renderTrips();
+function cleanupListeners() {
+  document.removeEventListener('touchmove', onMove);
+  document.removeEventListener('mousemove', onMove);
+  document.removeEventListener('touchend', onEnd);
+  document.removeEventListener('touchcancel', onEnd);
+  document.removeEventListener('mouseup', onEnd);
+}
 
-                if (state.scheduleCache[tripName]) {
-                    state.schedules = state.scheduleCache[tripName];
-                    renderSchedules();
-                    return;
-                }
-                
-                scheduleList.innerHTML = `<div class="text-center text-gray-500 p-10 w-full">データを読み込んでいます...</div>`;
-                try {
-                    const schedules = await serverCall('getSchedules', tripName);
-                    if (state.currentTrip !== tripName) return;
-                    state.schedules = schedules || [];
-                    state.scheduleCache[tripName] = state.schedules;
-                    renderSchedules();
-                } catch (error) {
-                    console.error(`Failed to get schedules for ${tripName}`, error);
-                    scheduleList.innerHTML = `<div class="text-center text-red-500 p-10 w-full">予定の読み込みに失敗しました。</div>`;
-                }
-            }
+function beginDrag(row, pt) {
+  const rect = row.getBoundingClientRect();
+  const ghost = row.cloneNode(true);
+  ghost.classList.add('drag-ghost');
+  Object.assign(ghost.style, { width: rect.width + 'px', left: rect.left + 'px', top: rect.top + 'px' });
+  document.body.appendChild(ghost);
+  row.classList.add('dragging');
+  document.body.classList.add('dragging');
+  if (navigator.vibrate) { try { navigator.vibrate(25); } catch (_) {} }
+  drag = { row, ghost, id: row.dataset.id, offY: pt.y - rect.top, offX: pt.x - rect.left, pt, targetDay: null, raf: null };
+  const loop = () => {
+    if (!drag) return;
+    const main = $('main'), r = main.getBoundingClientRect(), zone = 90;
+    let dy = 0;
+    if (drag.pt.y > r.bottom - zone) dy = Math.min(18, (drag.pt.y - (r.bottom - zone)) / 4);
+    else if (drag.pt.y < r.top + zone + 60) dy = -Math.min(18, ((r.top + zone + 60) - drag.pt.y) / 4);
+    if (dy) { main.scrollTop += dy; updateDrag(); }
+    drag.raf = requestAnimationFrame(loop);
+  };
+  updateDrag();
+  drag.raf = requestAnimationFrame(loop);
+}
 
-            // --- モーダル関連 ---
-            function showAddTripModal() {
-                modalTitle.textContent = '新しい旅行を追加';
-                modalForm.innerHTML = `
-                    <div class="space-y-4">
-                        <div>
-                            <label for="newTripName" class="block text-sm font-medium text-gray-700">旅行名</label>
-                            <input type="text" id="newTripName" name="newTripName" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
-                        </div>
-                        <div class="flex justify-end gap-2 pt-4 border-t">
-                            <button type="button" id="cancel-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg">キャンセル</button>
-                            <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">作成</button>
-                        </div>
-                    </div>`;
-                modal.classList.remove('hidden'); modal.classList.add('flex');
-                document.getElementById('cancel-btn').addEventListener('click', hideModal);
-                modalForm.querySelector('button[type="submit"]').addEventListener('click', handleAddTripSubmit);
-            }
+function updateDrag() {
+  if (!drag) return;
+  const { pt, ghost } = drag;
+  ghost.style.top = (pt.y - drag.offY) + 'px';
+  ghost.style.left = (pt.x - drag.offX) + 'px';
 
-            async function handleAddTripSubmit(e) {
-                e.preventDefault();
-                const submitBtn = modalForm.querySelector('button[type="submit"]');
-                submitBtn.disabled = true;
-                submitBtn.textContent = '作成中...';
-                try {
-                    const tripName = document.getElementById('newTripName').value;
-                    if (!tripName || tripName.trim().length === 0) {
-                        showToast('旅行名を入力してください', 'error');
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = '作成';
-                        return;
-                    }
-                    await serverCall('addTrip', tripName);
-                    const tripLists = await serverCall('getTrips');
-                    state.tripLists = tripLists;
-                    hideModal(); 
-                    showToast(`旅行「${tripName}」を作成しました`);
-                    await handleTripSelect(tripName.trim());
-                } catch (error) {
-                    showToast(error.message, 'error');
-                    if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = '作成';
-                    }
-                }
-            }
+  // 日付チップ上か判定
+  const under = document.elementFromPoint(pt.x, pt.y);
+  const chip = under && under.closest && under.closest('.day-chip');
+  document.querySelectorAll('.day-chip.drop-target').forEach(c => c.classList.remove('drop-target'));
+  if (chip && chip.dataset.day !== state.selectedDay && chip.dataset.day !== 'undated') {
+    chip.classList.add('drop-target');
+    drag.targetDay = chip.dataset.day;
+    return;
+  }
+  drag.targetDay = null;
 
-            function showEditMileageModal() {
-                modalTitle.textContent = 'マイレージ情報を編集';
-                const paraMileage = state.mileage['ぱら'] || {}; const rinaMileage = state.mileage['りな'] || {};
-                modalForm.innerHTML = `
-                    <div class="space-y-6">
-                        <div>
-                            <h4 class="font-bold text-lg text-gray-800 mb-2">ぱら</h4>
-                            <div class="space-y-3">
-                                <div>
-                                    <label for="para-ana-mileage" class="block text-sm font-medium text-gray-700">ANA マイレージクラブ番号</label>
-                                    <input type="text" name="ぱら_ANA" id="para-ana-mileage" value="${paraMileage.ANA||''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                                </div>
-                                <div>
-                                    <label for="para-jal-mileage" class="block text-sm font-medium text-gray-700">JAL マイレージバンク番号</label>
-                                    <input type="text" name="ぱら_JAL" id="para-jal-mileage" value="${paraMileage.JAL||''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                                </div>
-                            </div>
-                        </div>
-                        <div>
-                            <h4 class="font-bold text-lg text-gray-800 mb-2">りな</h4>
-                            <div class="space-y-3">
-                                <div>
-                                    <label for="rina-ana-mileage" class="block text-sm font-medium text-gray-700">ANA マイレージクラブ番号</label>
-                                    <input type="text" name="りな_ANA" id="rina-ana-mileage" value="${rinaMileage.ANA||''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                                </div>
-                                <div>
-                                    <label for="rina-jal-mileage" class="block text-sm font-medium text-gray-700">JAL マイレージバンク番号</label>
-                                    <input type="text" name="りな_JAL" id="rina-jal-mileage" value="${rinaMileage.JAL||''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="flex justify-end gap-2 pt-4 border-t">
-                            <button type="button" id="cancel-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg">キャンセル</button>
-                            <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">保存</button>
-                        </div>
-                    </div>`;
-                modal.classList.remove('hidden'); modal.classList.add('flex');
-                document.getElementById('cancel-btn').addEventListener('click', hideModal);
-                modalForm.querySelector('button[type="submit"]').addEventListener('click', handleMileageFormSubmit);
-            }
+  // 並び替え位置の決定
+  const timeline = $('timeline');
+  const rows = [...timeline.querySelectorAll('.sch-row')].filter(r => r !== drag.row);
+  let before = null;
+  for (const r of rows) {
+    const b = r.getBoundingClientRect();
+    if (pt.y < b.top + b.height / 2) { before = r; break; }
+  }
+  if (before) { if (drag.row.nextElementSibling !== before) timeline.insertBefore(drag.row, before); }
+  else if (timeline.lastElementChild !== drag.row) timeline.appendChild(drag.row);
+}
 
-            async function handleMileageFormSubmit(e) {
-                e.preventDefault();
-                const submitBtn = modalForm.querySelector('button[type="submit"]');
-                submitBtn.disabled = true; submitBtn.textContent = '保存中...';
-                try {
-                    const formData = new FormData(modalForm); const mileageData = {};
-                    for (let [key, value] of formData.entries()) { mileageData[key] = value; }
-                    const updatedMileage = await serverCall('updateMileage', mileageData);
-                    state.mileage = updatedMileage; renderMileage(); hideModal();
-                    showToast('マイレージ情報を更新しました');
-                } catch (error) { 
-                    showToast(error.message, 'error'); 
-                    if(submitBtn) {
-                        submitBtn.disabled = false; submitBtn.textContent = '保存';
-                    }
-                }
-            }
+function onMove(e) {
+  const pt = getPt(e);
+  if (press) press.last = pt;
+  if (drag) {
+    e.preventDefault();
+    drag.pt = pt;
+    updateDrag();
+    return;
+  }
+  if (press && Math.hypot(pt.x - press.start.x, pt.y - press.start.y) > 10) {
+    clearTimeout(press.timer); press = null; cleanupListeners(); // スクロール意図 → キャンセル
+  }
+}
 
-            function showScheduleModal(isEditing = false, id = null) {
-                state.isEditing = isEditing; state.editingId = id;
-                const schedule = isEditing ? state.schedules.find(s => s.id === id) : {};
-                const date = schedule?.datetime ? new Date(schedule.datetime) : new Date();
-                const yyyy = date.getFullYear(); const mm = String(date.getMonth() + 1).padStart(2, '0'); const dd = String(date.getDate()).padStart(2, '0'); const hh = String(date.getHours()).padStart(2, '0'); const mi = String(date.getMinutes()).padStart(2, '0');
+function onEnd() {
+  if (press) { clearTimeout(press.timer); press = null; }
+  cleanupListeners();
+  if (!drag) return;
+  const d = drag; drag = null;
+  cancelAnimationFrame(d.raf);
+  d.ghost.remove();
+  d.row.classList.remove('dragging');
+  document.body.classList.remove('dragging');
+  document.querySelectorAll('.day-chip.drop-target').forEach(c => c.classList.remove('drop-target'));
 
-                modalTitle.textContent = isEditing ? '予定を編集' : '予定を追加';
-                modalForm.innerHTML = `
-                    <div class="space-y-4">
-                        <div>
-                            <label for="destination" class="block text-sm font-medium text-gray-700">予定の件名</label>
-                            <input type="text" id="destination" name="destination" value="${schedule?.destination||''}" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                        </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label for="date" class="block text-sm font-medium text-gray-700">日付</label>
-                                <input type="date" id="date" name="date" value="${yyyy}-${mm}-${dd}" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                            </div>
-                            <div>
-                                <label for="time" class="block text-sm font-medium text-gray-700">時刻</label>
-                                <input type="time" id="time" name="time" value="${hh}:${mi}" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                            </div>
-                        </div>
-                        <hr/>
-                        <div class="space-y-4">
-                            <div>
-                                <label for="address" class="block text-sm font-medium text-gray-700">場所・住所 (任意)</label>
-                                <input type="text" id="address" name="address" value="${schedule?.address||''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                            </div>
-                            <div>
-                                <label for="method" class="block text-sm font-medium text-gray-700">移動手段 (任意)</label>
-                                <select id="method" name="method" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                                    <option>指定なし</option><option>車</option><option>徒歩</option><option>飛行機</option><option>新幹線</option><option>電車</option><option>バス</option><option>その他</option>
-                                </select>
-                            </div>
-                            <div id="route-search-container" class="hidden mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2"></div>
-                            <div id="seat-info-container" class="hidden">
-                                <label for="seatInfo" class="block text-sm font-medium text-gray-700">座席情報</label>
-                                <input type="text" id="seatInfo" name="seatInfo" value="${schedule?.seatInfo||''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                            </div>
-                            <div>
-                                <div class="flex items-center">
-                                    <input type="checkbox" id="parking-toggle" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
-                                    <label for="parking-toggle" class="ml-2 block text-sm font-medium text-gray-700">駐車場情報を追加</label>
-                                </div>
-                                <div id="parking-info-container" class="hidden mt-2 space-y-2">
-                                    <div>
-                                        <label for="parkingInfo" class="block text-xs font-medium text-gray-600">駐車場の詳細（料金、場所など）</label>
-                                        <textarea id="parkingInfo" name="parkingInfo" rows="2" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">${schedule?.parkingInfo||''}</textarea>
-                                    </div>
-                                    <div>
-                                        <label for="parkingUrl" class="block text-xs font-medium text-gray-600">駐車場 参考URL (任意)</label>
-                                        <input type="url" id="parkingUrl" name="parkingUrl" value="${schedule?.parkingUrl||''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                                    </div>
-                                </div>
-                            </div>
-                            <div>
-                                <label for="url" class="block text-sm font-medium text-gray-700">参考URL 1 (任意)</label>
-                                <input type="url" id="url" name="url" value="${schedule?.url||''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                            </div>
-                            <div>
-                                <label for="url2" class="block text-sm font-medium text-gray-700">参考URL 2 (任意)</label>
-                                <input type="url" id="url2" name="url2" value="${schedule?.url2||''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                            </div>
-                            <div>
-                                <label for="memo" class="block text-sm font-medium text-gray-700">メモ (任意)</label>
-                                <textarea id="memo" name="memo" rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">${schedule?.memo||''}</textarea>
-                            </div>
-                        </div>
-                        <div class="flex justify-end gap-2 pt-4 border-t">
-                            <button type="button" id="cancel-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg">キャンセル</button>
-                            <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">保存</button>
-                        </div>
-                    </div>`;
+  if (d.targetDay) {
+    // 別の日へ移動(時刻はそのまま)
+    const s = state.schedules.find(x => x.id === d.id);
+    if (s) {
+      const p = partsOf(s.datetime);
+      showToast(`${chipLabel(d.targetDay, state.days.indexOf(d.targetDay)).d2} に移動しました`);
+      persistChanges([{ ...s, datetime: toISO(d.targetDay, p.h, p.m) }]);
+    } else renderSchedules();
+    return;
+  }
 
-                modal.classList.remove('hidden'); modal.classList.add('flex');
-                document.body.classList.add('modal-open');
+  // 同じ日の並び替え: 日内の時刻スロットを新しい順に割り当て直す
+  const newOrder = [...$('timeline').querySelectorAll('.sch-row')].map(r => r.dataset.id);
+  const dayItems = state.schedules.filter(s => dayKey(s) === state.selectedDay);
+  const oldOrder = dayItems.map(s => s.id);
+  if (newOrder.join() === oldOrder.join()) { renderSchedules(); return; }
 
-                const addressInput = document.getElementById('address');
-                if (window.google && google.maps && google.maps.places) {
-                    destroyAutocompleteIfAny();
-                    document.querySelectorAll('.pac-container').forEach(el => el.remove());
+  const slots = dayItems.map(s => new Date(s.datetime).getTime()).sort((a, b) => a - b);
+  for (let i = 1; i < slots.length; i++) {           // 同時刻だと順序が保てないので10分ずつずらす
+    if (slots[i] <= slots[i - 1]) slots[i] = slots[i - 1] + STEP_MIN * 60000;
+  }
+  const changed = [];
+  newOrder.forEach((id, i) => {
+    const s = dayItems.find(x => x.id === id);
+    const iso = new Date(slots[i]).toISOString();
+    if (new Date(s.datetime).getTime() !== slots[i]) changed.push({ ...s, datetime: iso });
+  });
+  persistChanges(changed);
+}
 
-                    currentAutocomplete = new google.maps.places.Autocomplete(addressInput, {
-                        fields: ["formatted_address", "name"],
-                        strictBounds: false
-                    });
+/* ---------- イベント登録 ---------- */
+$('open-sidebar-btn').addEventListener('click', openSidebar);
+$('close-sidebar-btn').addEventListener('click', closeSidebar);
+$('sidebar-overlay').addEventListener('click', closeSidebar);
+$('add-trip-btn').addEventListener('click', showAddTripModal);
+$('fab').addEventListener('click', () => showScheduleModal(false));
+$('modal-backdrop').addEventListener('click', hideModal);
+$('hint-close').addEventListener('click', () => { localStorage.setItem('hintClosed', '1'); $('hint').classList.add('hidden'); });
 
-                    currentAutocomplete.addListener('place_changed', () => {
-                        const place = currentAutocomplete.getPlace(); if (!place) return;
-                        let displayAddress = place.formatted_address || '';
-                        if (place.name && displayAddress.includes(place.name)) {
-                            displayAddress = displayAddress.replace(place.name, '').replace(/^〒[0-9-]+/, '').trim();
-                            if (displayAddress.startsWith('、') || displayAddress.startsWith(',')) displayAddress = displayAddress.substring(1).trim();
-                        }
-                        document.getElementById('address').value = displayAddress;
-                        if (place.name && !document.getElementById('destination').value) {
-                            document.getElementById('destination').value = place.name;
-                        }
-                    });
-                }
-                
-                const methodSelect = document.getElementById('method');
-                const toggleDetailInputs = () => {
-                    const selectedMethod = methodSelect.value;
-                    const showRouteSearch = ['車','徒歩'].includes(selectedMethod);
-                    const showSeatInfo = ['飛行機','新幹線'].includes(selectedMethod);
-                    document.getElementById('seat-info-container').classList.toggle('hidden', !showSeatInfo);
-                    document.getElementById('route-search-container').classList.toggle('hidden', !showRouteSearch);
-                    if (showRouteSearch) {
-                        let previousAddress = '';
-                        if (state.isEditing) {
-                            const currentIndex = state.schedules.findIndex(s => s.id === state.editingId);
-                            if (currentIndex > 0) previousAddress = state.schedules[currentIndex-1].address || '';
-                        } else if (state.schedules.length > 0) {
-                            previousAddress = state.schedules[state.schedules.length - 1].address || '';
-                        }
-                        document.getElementById('route-search-container').innerHTML = `
-                            <h5 class="text-sm font-bold text-gray-600">ルート検索</h5>
-                            <div>
-                                <label for="origin" class="block text-xs font-medium text-gray-600">出発地</label>
-                                <input type="text" id="origin" value="${previousAddress}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm">
-                            </div>
-                            <button type="button" id="route-search-btn" class="mt-2 w-full bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-bold py-2 px-3 rounded-lg">検索</button>
-                            <div id="route-results" class="mt-2 text-sm"></div>`;
-                        document.getElementById('route-search-btn').addEventListener('click', handleRouteSearch);
-                    }
-                };
-                methodSelect.value = schedule?.method || '指定なし';
-                toggleDetailInputs();
-                methodSelect.addEventListener('change', toggleDetailInputs);
+$('day-chips').addEventListener('click', e => {
+  const c = e.target.closest('.day-chip'); if (!c) return;
+  state.selectedDay = c.dataset.day; renderSchedules(); $('main').scrollTop = 0;
+});
 
-                const parkingToggle = document.getElementById('parking-toggle');
-                const parkingInfoContainer = document.getElementById('parking-info-container');
-                parkingToggle.addEventListener('change', () => { parkingInfoContainer.classList.toggle('hidden', !parkingToggle.checked); });
-                if (schedule?.parkingInfo || schedule?.parkingUrl) { parkingToggle.checked = true; parkingInfoContainer.classList.remove('hidden'); }
+$('schedule-list').addEventListener('click', e => {
+  const b = e.target.closest('[data-action]'); if (!b) return;
+  const a = b.dataset.action;
+  if (a === 'edit') showScheduleModal(true, b.dataset.id);
+  else if (a === 'delete') handleDeleteSchedule(b.dataset.id);
+  else if (a === 'time') showTimeModal(b.dataset.id);
+  else if (a === 'map') handleMapToggle(b);
+});
+$('schedule-list').addEventListener('touchstart', onPressStart, { passive: true });
+$('schedule-list').addEventListener('mousedown', onPressStart);
+$('schedule-list').addEventListener('contextmenu', e => { if (e.target.closest('.sch-row')) e.preventDefault(); });
 
-                document.getElementById('cancel-btn').addEventListener('click', hideModal);
-                modalForm.querySelector('button[type="submit"]').addEventListener('click', handleScheduleSubmit);
-            }
+$('trip-list').addEventListener('click', e => {
+  const b = e.target.closest('[data-action]'); if (!b) return;
+  const a = b.dataset.action, n = b.dataset.tripName;
+  closeAllTripMenus();
+  if (a === 'archive') handleArchiveTrip(n);
+  else if (a === 'unarchive') handleUnarchiveTrip(n);
+  else if (a === 'delete') handleDeleteTrip(n);
+});
+document.addEventListener('click', e => { if (!e.target.closest('#trip-list')) closeAllTripMenus(); });
 
-            async function handleScheduleSubmit(e) {
-                e.preventDefault();
-                
-                // モバイルでのキーボード問題を回避するために、アクティブな要素からフォーカスを外す
-                if (document.activeElement) {
-                    document.activeElement.blur();
-                }
-
-                const submitBtn = modalForm.querySelector('button[type="submit"]');
-                if (!submitBtn) {
-                    console.error("Submit button not found in modal.");
-                    return;
-                }
-
-                submitBtn.disabled = true;
-                submitBtn.textContent = '保存中...';
-                
-                try {
-                    const formData = new FormData(modalForm); 
-                    let methodValue = formData.get('method'); if (methodValue === '指定なし') methodValue = '';
-                    const dateStr = formData.get('date'); const timeStr = formData.get('time'); 
-                    const localDateTime = new Date(`${dateStr}T${timeStr}`);
-                    const finalSchedule = { 
-                        id: state.isEditing ? state.editingId : null, 
-                        method: methodValue, 
-                        datetime: localDateTime.toISOString(), 
-                        destination: formData.get('destination'), 
-                        address: formData.get('address') || '', 
-                        url: formData.get('url') || '', 
-                        url2: formData.get('url2') || '', 
-                        memo: formData.get('memo'), 
-                        seatInfo: formData.get('seatInfo') || '', 
-                        parkingInfo: document.getElementById('parking-toggle').checked ? formData.get('parkingInfo') : '', 
-                        parkingUrl: document.getElementById('parking-toggle').checked ? formData.get('parkingUrl') : '' 
-                    };
-                    const action = state.isEditing ? 'updateSchedule' : 'addSchedule';
-                    await serverCall(action, state.currentTrip, finalSchedule);
-                    delete state.scheduleCache[state.currentTrip];
-                    hideModal(); 
-                    showToast(`予定を${state.isEditing ? '更新' : '追加'}しました`);
-                    await handleTripSelect(state.currentTrip);
-                } catch (error) { 
-                    showToast(error.message, 'error');
-                    // エラーが発生した場合にのみ、ボタンの状態を元に戻します
-                    if(submitBtn) {
-                        submitBtn.disabled = false; 
-                        submitBtn.textContent = '保存';
-                    }
-                }
-            }
-
-            async function handleDeleteSchedule(id) {
-                if (confirm('この予定を本当に削除しますか？')) {
-                    try {
-                        await serverCall('deleteSchedule', state.currentTrip, id);
-                        delete state.scheduleCache[state.currentTrip];
-                        showToast('予定を削除しました');
-                        handleTripSelect(state.currentTrip);
-                    } catch (error) { showToast(error.message, 'error'); }
-                }
-            }
-
-            // --- その他のヘルパー関数 ---
-            function handleCopyMileage(e) { 
-                const p = e.currentTarget.dataset.person, a = e.currentTarget.dataset.airline, n = state.mileage?.[p]?.[a];
-                if (n && n !== '未設定') {
-                    navigator.clipboard.writeText(n).then(()=>showToast(`${p}さんの${a}番号をコピーしました`)).catch(()=>showToast('コピーに失敗しました','error'));
-                } else { showToast('番号が設定されていません','error'); }
-            }
-
-            function handleRouteSearch() { 
-                const o = document.getElementById('origin').value, d = document.getElementById('address').value, r = document.getElementById('route-results');
-                if (!o || !d) { r.innerHTML = `<p class="text-red-600">出発地と目的地を入力してください。</p>`; return; }
-                r.innerHTML = `<p class="text-gray-500">検索中...</p>`;
-                const t = document.getElementById('method').value === '徒歩' ? 'WALKING' : 'DRIVING';
-                directionsService.route({origin:o,destination:d,travelMode:google.maps.TravelMode[t]},(res,s)=>{
-                    if (s==='OK') {
-                        const l = res.routes[0].legs[0];
-                        r.innerHTML = `<div class="p-2 bg-green-50 border-l-4 border-green-400"><p><strong>距離:</strong> ${l.distance.text}</p><p><strong>所要時間:</strong> ${l.duration.text}</p></div>`;
-                        const m = document.getElementById('memo');
-                        const i = `[ルート情報: ${o} → ${d}, 所要時間: ${l.duration.text}]`;
-                        let c = m.value.replace(/\[ルート情報:.*?\]\n?/, '');
-                        m.value = `${i}\n${c}`.trim();
-                    } else {
-                        r.innerHTML = `<p class="text-red-600">ルートが見つかりませんでした: ${s}</p>`;
-                    }
-                });
-            }
-
-            async function handleArchiveTrip(tripName) { 
-                if (confirm(`「${tripName}」をアーカイブしますか？`)) {
-                    await serverCall('archiveTrip',tripName);
-                    if (state.currentTrip===tripName) {
-                        state.currentTrip=null; currentTripNameEl.textContent='旅行を選択'; scheduleList.innerHTML='';
-                        welcomeMessage.classList.remove('hidden'); headerControls.classList.add('hidden'); headerControls.classList.remove('flex','sm:flex');
-                    }
-                    const tripLists=await serverCall('getTrips'); state.tripLists=tripLists; renderTrips(); showToast('旅行をアーカイブしました');
-                }
-            }
-
-            async function handleUnarchiveTrip(tripName) { 
-                await serverCall('unarchiveTrip',tripName);
-                const tripLists=await serverCall('getTrips'); state.tripLists=tripLists; renderTrips(); showToast('旅行をアクティブに戻しました');
-            }
-
-            async function handleDeleteTrip(tripName) { 
-                if (confirm(`本当に「${tripName}」を削除しますか？\nこの操作は取り消せません。`)) {
-                    await serverCall('deleteTrip',tripName);
-                    if (state.currentTrip===tripName) {
-                        state.currentTrip=null; currentTripNameEl.textContent='旅行を選択'; scheduleList.innerHTML='';
-                        welcomeMessage.classList.remove('hidden'); headerControls.classList.add('hidden'); headerControls.classList.remove('flex','sm:flex');
-                    }
-                    const tripLists=await serverCall('getTrips'); state.tripLists=tripLists; renderTrips(); showToast('旅行を削除しました');
-                }
-            }
-
-            function handleMapToggle(e) {
-                const button = e.currentTarget;
-                const cardBody = button.closest('.flex-1');
-                if (!cardBody) return;
-                const mapContainer = cardBody.querySelector('.map-container');
-                if (!mapContainer) return;
-                
-                const isHidden = mapContainer.classList.contains('hidden');
-
-                if (isHidden) {
-                    if (!mapContainer.dataset.mapLoaded) {
-                        const address = button.dataset.address;
-                        const iframe = document.createElement('iframe');
-                        iframe.width = '100%';
-                        iframe.height = '100%';
-                        iframe.frameBorder = '0';
-                        iframe.style.border = '0';
-                        iframe.src = `https://www.google.com/maps/embed/v1/place?key=${API_KEY}&q=${encodeURIComponent(address)}`;
-                        iframe.allowFullscreen = true;
-                        mapContainer.innerHTML = '';
-                        mapContainer.appendChild(iframe);
-                        mapContainer.dataset.mapLoaded = 'true';
-                    }
-                    mapContainer.classList.remove('hidden');
-                    button.textContent = '地図を隠す';
-                } else {
-                    mapContainer.classList.add('hidden');
-                    button.textContent = '地図を表示';
-                }
-            }
-
-            function toggleTripMenu(button) { closeAllTripMenus(button); const menu = button.nextElementSibling; menu.classList.toggle('hidden'); }
-            function closeAllTripMenus(exceptButton=null) { 
-                document.querySelectorAll('.trip-menu').forEach(menu => {
-                    if (!exceptButton || !menu.previousElementSibling.isEqualNode(exceptButton)) menu.classList.add('hidden');
-                });
-            }
-
-            // --- イベントリスナー登録 ---
-            openSidebarBtn.addEventListener('click', () => { sidebar.classList.remove('sidebar-closed'); sidebar.classList.add('sidebar-open'); });
-            closeSidebarBtn.addEventListener('click', () => { sidebar.classList.add('sidebar-closed'); sidebar.classList.remove('sidebar-open'); });
-            addTripBtn.addEventListener('click', showAddTripModal);
-            addScheduleBtn.addEventListener('click', () => showScheduleModal(false));
-            modal.addEventListener('click', (e) => { if (e.target.classList.contains('modal-backdrop')) hideModal(); });
-            dateFilterInput.addEventListener('change', (e) => renderSchedules(e.target.value));
-            clearDateFilterBtn.addEventListener('click', () => { dateFilterInput.value = ''; renderSchedules(); });
-            tripList.addEventListener('click', (e) => { 
-                if (e.target.dataset.action) { 
-                    const t=e.target.dataset.action,n=e.target.dataset.tripName; 
-                    closeAllTripMenus(); 
-                    if (t==='archive') handleArchiveTrip(n);
-                    else if (t==='unarchive') handleUnarchiveTrip(n);
-                    else if (t==='delete') handleDeleteTrip(n);
-                } 
-            });
-            document.addEventListener('click', (e) => { if (!e.target.closest('.group')) { closeAllTripMenus(); } });
-            // Excel出力ボタンのイベントリスナー
-            document.getElementById('export-excel-btn').addEventListener('click', handleExportExcel);
-
-            // Excel出力処理 (SheetJSを使用)
-            function handleExportExcel() {
-                if (!state.schedules || state.schedules.length === 0) {
-                    showToast('出力する予定データがありません', 'error');
-                    return;
-                }
-
-                // 出力用にデータを整形
-                const exportData = state.schedules.map(s => {
-                    const d = new Date(s.datetime);
-                    const dateStr = !isNaN(d.getTime()) ? d.toLocaleString('ja-JP') : '未定';
-                    return {
-                        '日時': dateStr,
-                        '件名': s.destination || '',
-                        '移動手段': s.method || '',
-                        '場所・住所': s.address || '',
-                        '座席情報': s.seatInfo || '',
-                        'メモ': s.memo || '',
-                        '駐車場情報': s.parkingInfo || '',
-                        '参考URL1': s.url || '',
-                        '参考URL2': s.url2 || ''
-                    };
-                });
-
-                // SheetJSでワークブックを作成
-                const worksheet = XLSX.utils.json_to_sheet(exportData);
-                const workbook = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(workbook, worksheet, "スケジュール");
-
-                // Excelファイルとしてダウンロード (.xlsx)
-                const fileName = `${state.currentTrip || '旅行'}_スケジュール.xlsx`;
-                XLSX.writeFile(workbook, fileName);
-                
-                showToast('Excelファイルを出力しました');
-            }
-            // --- 初期化実行 ---
-            init();
-        };
-    </script>
+init();
+</script>
 </body>
 </html>
-
