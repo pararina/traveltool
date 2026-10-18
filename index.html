@@ -183,7 +183,50 @@ const METHODS = [
 ];
 const WEEK = ['日','月','火','水','木','金','土'];
 const STEP_MIN = 10;
+// --- 現地時間対応 ---
+const JP_TZ = 'Asia/Tokyo';
+const COUNTRIES = [
+  { tz: '',                    label: '日本(日本時間)' },
+  { tz: 'Pacific/Honolulu',    label: 'ハワイ' },
+  { tz: 'America/Los_Angeles', label: 'アメリカ西部(ロサンゼルス)' },
+  { tz: 'America/New_York',    label: 'アメリカ東部(ニューヨーク)' },
+  { tz: 'Europe/London',       label: 'イギリス' },
+  { tz: 'Europe/Paris',        label: 'フランス・ドイツ・イタリア等' },
+  { tz: 'Asia/Seoul',          label: '韓国' },
+  { tz: 'Asia/Taipei',         label: '台湾' },
+  { tz: 'Asia/Singapore',      label: 'シンガポール' },
+  { tz: 'Asia/Bangkok',        label: 'タイ' },
+  { tz: 'Australia/Sydney',    label: 'オーストラリア(シドニー)' },
+  { tz: 'Pacific/Guam',        label: 'グアム' },
+];
+const tzLabel = tz => (COUNTRIES.find(c => c.tz === (tz || '')) || { label: tz }).label;
 
+// 絶対時刻(Date)を、指定タイムゾーンでの年月日時分に分解
+function zonedParts(date, tz) {
+  const f = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz || JP_TZ, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  });
+  const o = {};
+  f.formatToParts(date).forEach(p => { o[p.type] = p.value; });
+  return { date: `${o.year}-${o.month}-${o.day}`, h: +o.hour, m: +o.minute };
+}
+
+// 「指定タイムゾーンでの現地日時」→ 絶対時刻のISO文字列
+function zonedToISO(dateStr, h, m, tz) {
+  if (!tz) return toISO(dateStr, h, m);   // 日本時間は従来どおり
+  const [Y, M, D] = dateStr.split('-').map(Number);
+  const asUTC = Date.UTC(Y, M - 1, D, h, m);
+  let guess = asUTC;
+  // 現地時刻との差を2回補正して、夏時間にも対応
+  for (let i = 0; i < 2; i++) {
+    const z = zonedParts(new Date(guess), tz);
+    const [zy, zm, zd] = z.date.split('-').map(Number);
+    const shown = Date.UTC(zy, zm - 1, zd, z.h, z.m);
+    guess += asUTC - shown;
+  }
+  return new Date(guess).toISOString();
+}
 const state = {
   tripLists: { active: [], archived: [] },
   currentTrip: null,
@@ -209,13 +252,14 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function methodInfo(v) { return METHODS.find(m => m.v === (v || '')) || METHODS[METHODS.length - 1]; }
-function partsOf(iso) {
+function partsOf(iso, tz) {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return { valid: false, date: 'undated', h: 9, m: 0 };
-  return { valid: true, date: `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`, h: d.getHours(), m: d.getMinutes() };
+  const z = zonedParts(d, tz);   // tz省略時は日本時間
+  return { valid: true, date: z.date, h: z.h, m: z.m };
 }
 const dayKey = s => partsOf(s.datetime).date;
-function toISO(dateStr, h, m) { return new Date(`${dateStr}T${pad(h)}:${pad(m)}:00`).toISOString(); }
+function toISO(dateStr, h, m) { return new Date(`${dateStr}T${pad(h)}:${pad(m)}:00+09:00`).toISOString(); }
 function sortSchedules() {
   state.schedules.sort((a, b) => {
     const A = new Date(a.datetime).getTime(), B = new Date(b.datetime).getTime();
@@ -436,10 +480,14 @@ function renderSchedules() {
 }
 
 function cardHtml(s) {
-  const p = partsOf(s.datetime);
+  const pj = partsOf(s.datetime);                 // 日本時間
+  const p = s.tz ? partsOf(s.datetime, s.tz) : pj; // 表示用(現地 or 日本)
   const time = p.valid ? `${pad(p.h)}:${pad(p.m)}` : '--:--';
+  const jpSub = (s.tz && p.valid)
+    ? `<div style="font-size:.62rem;color:var(--sub);line-height:1.2">🇯🇵${pad(pj.h)}:${pad(pj.m)}</div>` : '';
   const mi = methodInfo(s.method);
   const tags = [
+    s.tz ? `<span class="tag bg-amber-100 text-amber-800">🌏 ${esc(tzLabel(s.tz))}</span>` : '',
     s.method ? `<span class="tag" style="background:${mi.color}22;color:${mi.color}">${mi.icon} ${esc(s.method)}</span>` : '',
     s.seatInfo ? `<span class="tag bg-gray-100 text-gray-700">💺 ${esc(s.seatInfo)}</span>` : ''
   ].join('');
@@ -450,7 +498,7 @@ function cardHtml(s) {
   ].join('');
   return `
   <div class="sch-row" data-id="${esc(s.id)}" style="--accent:${mi.color}">
-    <div class="time-col"><button type="button" class="time-chip" data-action="time" data-id="${esc(s.id)}">${time}</button></div>
+    <div class="time-col"><button type="button" class="time-chip" data-action="time" data-id="${esc(s.id)}">${time}</button>${jpSub}</div>
     <div class="rail"><span class="dot"></span></div>
     <div class="card-main">
       <div class="flex items-start justify-between gap-2">
@@ -609,10 +657,10 @@ function timeSelectsHtml(h, m, idPrefix = '') {
 
 function showTimeModal(id) {
   const s = state.schedules.find(x => x.id === id); if (!s) return;
-  const p = partsOf(s.datetime);
-  openModal('時刻を変更', `<p class="text-sm text-[var(--sub)] mb-2">${esc(s.destination || '')}</p>
+  const p = partsOf(s.datetime, s.tz);
+  openModal(s.tz ? `時刻を変更(${tzLabel(s.tz)}の現地時間)` : '時刻を変更', `<p class="text-sm text-[var(--sub)] mb-2">${esc(s.destination || '')}</p>
     <label class="lbl">時刻</label>${timeSelectsHtml(p.h, p.m)}`, '変更', async (fd) => {
-      const updated = { ...s, datetime: toISO(p.date, +fd.get('hour'), +fd.get('minute')) };
+      const updated = { ...s, datetime: zonedToISO(p.date, +fd.get('hour'), +fd.get('minute'), s.tz) };
       hideModal();
       await persistChanges([updated]);
     });
@@ -623,7 +671,7 @@ function showScheduleModal(isEditing = false, id = null) {
   state.isEditing = isEditing; state.editingId = id;
   const s = isEditing ? (state.schedules.find(x => x.id === id) || {}) : {};
   let p;
-  if (isEditing && s.datetime) p = partsOf(s.datetime);
+  if (isEditing && s.datetime) p = partsOf(s.datetime, s.tz);
   else {
     const day = state.selectedDay && state.selectedDay !== 'undated' ? state.selectedDay : partsOf(new Date().toISOString()).date;
     const dayItems = state.schedules.filter(x => dayKey(x) === day);
@@ -643,6 +691,19 @@ function showScheduleModal(isEditing = false, id = null) {
         <div class="col-span-3"><label class="lbl">日付</label>
           <input type="date" id="date" name="date" value="${p.date}" class="field"></div>
         <div class="col-span-2"><label class="lbl">時刻(10分刻み)</label>${timeSelectsHtml(p.h, p.m)}</div>
+      </div>
+      <div class="p-3 bg-[#faf6ee] rounded-2xl">
+        <label class="flex items-center gap-2 font-bold text-sm">
+          <input type="checkbox" id="useLocalTz" ${s.tz ? 'checked' : ''} style="width:20px;height:20px;">
+          🌏 海外の現地時間で入力する
+        </label>
+        <div id="tz-box" class="${s.tz ? '' : 'hidden'} mt-2">
+          <label class="lbl">国・地域</label>
+          <select id="tz" name="tz" class="field">
+            ${COUNTRIES.filter(c => c.tz).map(c => `<option value="${c.tz}" ${s.tz === c.tz ? 'selected' : ''}>${c.label}</option>`).join('')}
+          </select>
+          <p id="tz-hint" class="text-xs text-[var(--sub)] mt-2"></p>
+        </div>
       </div>
       <div><label class="lbl">場所・住所</label>
         <input type="text" id="address" name="address" value="${esc(s.address || '')}" class="field" placeholder="検索して選択できます" autocomplete="off"></div>
@@ -673,10 +734,13 @@ function showScheduleModal(isEditing = false, id = null) {
       const dateStr = fd.get('date');
       if (!dest) throw new Error('件名を入力してください');
       if (!dateStr) throw new Error('日付を入力してください');
+      const useTz = !!$('useLocalTz') && $('useLocalTz').checked;
+      const tz = useTz ? (fd.get('tz') || '') : '';
       const finalSchedule = {
         id: state.isEditing ? state.editingId : null,
         method: fd.get('method') || '',
-        datetime: toISO(dateStr, +fd.get('hour'), +fd.get('minute')),
+        tz: tz,
+        datetime: zonedToISO(dateStr, +fd.get('hour'), +fd.get('minute'), tz),
         destination: dest,
         address: fd.get('address') || '',
         url: fd.get('url') || '',
@@ -688,10 +752,10 @@ function showScheduleModal(isEditing = false, id = null) {
       };
       await serverCall(state.isEditing ? 'updateSchedule' : 'addSchedule', state.currentTrip, finalSchedule);
       invalidateCache(state.currentTrip);
-      state.selectedDay = dateStr;
+      const keepDay = partsOf(finalSchedule.datetime).date;   // 日本時間の日付
+      state.selectedDay = keepDay;
       hideModal();
       showToast(`予定を${state.isEditing ? '更新' : '追加'}しました`);
-      const keepDay = dateStr;
       await handleTripSelect(state.currentTrip);
       if (state.days.includes(keepDay)) { state.selectedDay = keepDay; renderSchedules(); }
     });
@@ -715,6 +779,20 @@ function showScheduleModal(isEditing = false, id = null) {
   // Enterキーで送信されないように(オートコンプリート選択時の誤爆防止)
   addressInput.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
 
+  /* 現地時間チェック */
+  const updateTzHint = () => {
+    const on = $('useLocalTz').checked;
+    $('tz-box').classList.toggle('hidden', !on);
+    if (!on) return;
+    const d = $('date').value, h = +document.querySelector('[name=hour]').value, m = +document.querySelector('[name=minute]').value;
+    if (!d) { $('tz-hint').textContent = ''; return; }
+    const jp = partsOf(zonedToISO(d, h, m, $('tz').value));
+    $('tz-hint').textContent = `入力は${tzLabel($('tz').value)}の現地時間です → 日本時間では ${jp.date.replace(/-/g,'/')} ${pad(jp.h)}:${pad(jp.m)}`;
+  };
+  ['useLocalTz','tz','date'].forEach(i => $(i).addEventListener('change', updateTzHint));
+  document.querySelectorAll('[name=hour],[name=minute]').forEach(el => el.addEventListener('change', updateTzHint));
+  updateTzHint();
+  
   /* 移動手段チップ */
   const toggleDetail = () => {
     const v = $('method').value;
